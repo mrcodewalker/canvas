@@ -136,16 +136,27 @@ class XRayView @JvmOverloads constructor(
         invalidate()
     }
 
+    var onCloseClicked: (() -> Unit)? = null
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!cardRect.contains(event.x, event.y)) {
+            return false
+        }
         if (event.action == MotionEvent.ACTION_UP) {
-            // If tapped near header or anywhere when minimized, toggle minimize state
+            val x = event.x
             val y = event.y
-            if (isMinimized || y <= dp(36f)) {
+            // Check close button tap (rightmost 32dp of header)
+            if (x >= cardRect.right - dp(32f) && y <= cardRect.top + dp(36f)) {
+                onCloseClicked?.invoke() ?: run { visibility = GONE }
+                return true
+            }
+            // Check header tap to toggle minimize
+            if (isMinimized || y <= cardRect.top + dp(36f)) {
                 toggleMinimize()
                 return true
             }
         }
-        return true // Consume touch so it doesn't accidentally draw through HUD
+        return true // Consume touch inside HUD so it doesn't draw through
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -188,9 +199,10 @@ class XRayView @JvmOverloads constructor(
         val modeText = "[${currentMode.name}]"
         canvas.drawText(modeText, cardRect.left + dp(135f), headerY, modePaint)
 
-        // Minimize / Expand indicator
+        // Close button '✕' and Minimize/Expand indicator
+        canvas.drawText("✕", cardRect.right - dp(20f), headerY, titlePaint)
         val toggleText = if (isMinimized) "▼ Expand" else "▲ Minimize"
-        canvas.drawText(toggleText, cardRect.right - dp(65f), headerY, subtleTextPaint)
+        canvas.drawText(toggleText, cardRect.right - dp(95f), headerY, subtleTextPaint)
 
         if (isMinimized) {
             drawMinimizedContent(canvas, cardRect)

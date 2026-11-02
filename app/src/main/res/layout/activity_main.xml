@@ -4,220 +4,211 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#121212">
+    android:background="#0F1218">
 
-    <!-- Top Action Bar / Controls -->
-    <HorizontalScrollView
+    <!-- Top Action Bar with Modern Glass Header -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#1E1E1E"
-        android:padding="6dp"
-        android:scrollbars="none">
+        android:background="#161B26"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:elevation="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-        <LinearLayout
+        <!-- Mode Pill Switcher (Click to toggle) -->
+        <TextView
+            android:id="@+id/tvMode"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_height="36dp"
+            android:text="TIERED ▾"
+            android:textStyle="bold"
+            android:textColor="#00E676"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:background="@drawable/bg_toolbar_pill"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginEnd="6dp" />
 
-            <TextView
-                android:id="@+id/tvMode"
+        <!-- Quick Primary Action Buttons -->
+        <Button
+            android:id="@+id/btnUndo"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="↶ Undo"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:background="@drawable/bg_toolbar_pill"
+            android:layout_marginEnd="5dp" />
+
+        <Button
+            android:id="@+id/btnRedo"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="↷ Redo"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:background="@drawable/bg_toolbar_pill"
+            android:layout_marginEnd="6dp" />
+
+        <!-- Horizontally Scrollable Utilities -->
+        <HorizontalScrollView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:scrollbars="none">
+
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="NAIVE"
-                android:textStyle="bold"
-                android:textColor="#FF9800"
-                android:paddingStart="8dp"
-                android:paddingEnd="12dp"
-                android:textSize="14sp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <Button
-                android:id="@+id/btnUndo"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Undo"
-                android:textAllCaps="false"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                <Button
+                    android:id="@+id/btnClear"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="✕ Clear"
+                    android:textAllCaps="false"
+                    android:textColor="#F87171"
+                    android:textSize="12sp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_toolbar_pill"
+                    android:layout_marginEnd="5dp" />
 
-            <Button
-                android:id="@+id/btnRedo"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Redo"
-                android:textAllCaps="false"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                <Button
+                    android:id="@+id/btnFill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="Fill 16MB"
+                    android:textAllCaps="false"
+                    android:textColor="#FBBF24"
+                    android:textSize="12sp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_toolbar_pill"
+                    android:layout_marginEnd="5dp" />
 
-            <Button
-                android:id="@+id/btnClear"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Clear"
-                android:textAllCaps="false"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                <Button
+                    android:id="@+id/btnStress"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="⚡ Stress"
+                    android:textAllCaps="false"
+                    android:textColor="#FB7185"
+                    android:textSize="12sp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_toolbar_pill"
+                    android:layout_marginEnd="6dp" />
 
-            <Button
-                android:id="@+id/btnFill"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Fill (16MB)"
-                android:textAllCaps="false"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                <Button
+                    android:id="@+id/btnToggleXRay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="⚡ X-Ray"
+                    android:textAllCaps="false"
+                    android:textColor="#38BDF8"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_toolbar_pill_accent"
+                    android:layout_marginEnd="5dp" />
 
-            <Button
-                android:id="@+id/btnStress"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Stress"
-                android:textAllCaps="false"
-                android:textColor="#FF5252"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                <Button
+                    android:id="@+id/btnDemo3Min"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="▶ Demo 3P"
+                    android:textAllCaps="false"
+                    android:textColor="#FBBF24"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_toolbar_pill_accent"
+                    android:layout_marginEnd="5dp" />
 
-            <Button
-                android:id="@+id/btnBenchmark"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Benchmark"
-                android:textAllCaps="false"
-                android:textColor="#00E676"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                <Button
+                    android:id="@+id/btnBenchmark"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="📊 Bench"
+                    android:textAllCaps="false"
+                    android:textColor="#34D399"
+                    android:textSize="12sp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_toolbar_pill_accent"
+                    android:layout_marginEnd="4dp" />
 
-            <Button
-                android:id="@+id/btnToggleXRay"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="X-Ray"
-                android:textAllCaps="false"
-                android:textColor="#64B5F6"
-                android:layout_marginEnd="6dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+            </LinearLayout>
+        </HorizontalScrollView>
 
-            <Button
-                android:id="@+id/btnDemo3Min"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:text="Demo 3P"
-                android:textAllCaps="false"
-                android:textColor="#FFB300"
-                android:layout_marginEnd="12dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+    </LinearLayout>
 
-            <View
-                android:layout_width="1dp"
-                android:layout_height="24dp"
-                android:background="#444444"
-                android:layout_marginEnd="12dp" />
-
-            <!-- Brush Size Selector -->
-            <Button
-                android:id="@+id/btnBrushSmall"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:text="S"
-                android:layout_marginEnd="4dp"
-                style="@style/Widget.MaterialComponents.Button.TextButton" />
-
-            <Button
-                android:id="@+id/btnBrushMedium"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:text="M"
-                android:layout_marginEnd="4dp"
-                style="@style/Widget.MaterialComponents.Button.TextButton" />
-
-            <Button
-                android:id="@+id/btnBrushLarge"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:text="L"
-                android:layout_marginEnd="4dp"
-                style="@style/Widget.MaterialComponents.Button.TextButton" />
-
-            <Button
-                android:id="@+id/btnBrushXL"
-                android:layout_width="44dp"
-                android:layout_height="40dp"
-                android:text="XL"
-                android:layout_marginEnd="12dp"
-                style="@style/Widget.MaterialComponents.Button.TextButton" />
-
-            <View
-                android:layout_width="1dp"
-                android:layout_height="24dp"
-                android:background="#444444"
-                android:layout_marginEnd="12dp" />
-
-            <!-- Quick Color Palette -->
-            <View
-                android:id="@+id/colorBlack"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="#000000"
-                android:layout_marginEnd="8dp" />
-
-            <View
-                android:id="@+id/colorRed"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="#E53935"
-                android:layout_marginEnd="8dp" />
-
-            <View
-                android:id="@+id/colorBlue"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="#1E88E5"
-                android:layout_marginEnd="8dp" />
-
-            <View
-                android:id="@+id/colorGreen"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="#43A047"
-                android:layout_marginEnd="8dp" />
-
-            <View
-                android:id="@+id/colorWhite"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="#FFFFFF"
-                android:layout_marginEnd="8dp" />
-
-        </LinearLayout>
-    </HorizontalScrollView>
-
-    <!-- Canvas Container with X-Ray Overlay and Demo Banner -->
+    <!-- Canvas Container with Interactive HUD and Floating Tools -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
 
+        <!-- Drawing Canvas -->
         <com.example.canvas.ui.DrawingView
             android:id="@+id/drawingView"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
+        <!-- Memory X-Ray HUD (Hidden by default, toggleable with X-Ray button) -->
         <com.example.canvas.ui.XRayView
             android:id="@+id/xRayView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top"
-            android:layout_margin="8dp" />
+            android:layout_gravity="top|center_horizontal"
+            android:layout_margin="12dp"
+            android:visibility="gone" />
 
-        <!-- Demo Narration Banner -->
+        <!-- Demo Narration Banner (Overlay at top of canvas during demo) -->
         <LinearLayout
             android:id="@+id/demoBanner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:background="#E6212121"
+            android:layout_gravity="top"
+            android:layout_margin="12dp"
+            android:background="@drawable/bg_floating_dock"
             android:padding="12dp"
             android:orientation="vertical"
+            android:elevation="12dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -232,18 +223,23 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="PHASE 1: NAIVE (0:00 / 3:00)"
-                    android:textColor="#FFB300"
+                    android:textColor="#FBBF24"
                     android:textStyle="bold"
-                    android:textSize="14sp" />
+                    android:textSize="13sp" />
 
                 <Button
                     android:id="@+id/btnStopDemo"
                     android:layout_width="wrap_content"
-                    android:layout_height="36dp"
+                    android:layout_height="32dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
                     android:text="Stop Demo"
                     android:textAllCaps="false"
-                    android:textColor="#FF5252"
-                    style="@style/Widget.MaterialComponents.Button.TextButton" />
+                    android:textColor="#F87171"
+                    android:textSize="11sp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:background="@drawable/bg_toolbar_pill" />
             </LinearLayout>
 
             <ProgressBar
@@ -253,7 +249,7 @@
                 android:layout_height="4dp"
                 android:max="180"
                 android:progress="0"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="6dp"
                 android:layout_marginBottom="6dp" />
 
             <TextView
@@ -261,19 +257,133 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Observing memory dynamics..."
-                android:textColor="#ECEFF1"
+                android:textColor="#E2E8F0"
                 android:textSize="12sp" />
+
+        </LinearLayout>
+
+        <!-- Floating Bottom Dock: Brush Sizes & Colors Palette -->
+        <LinearLayout
+            android:id="@+id/floatingDock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/bg_floating_dock"
+            android:padding="6dp"
+            android:elevation="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Brush Size Selectors -->
+            <Button
+                android:id="@+id/btnBrushSmall"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="S"
+                android:textColor="#E2E8F0"
+                android:textSize="12sp"
+                android:background="@drawable/bg_brush_button_normal"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnBrushMedium"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="M"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_brush_button_selected"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnBrushLarge"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="L"
+                android:textColor="#E2E8F0"
+                android:textSize="12sp"
+                android:background="@drawable/bg_brush_button_normal"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnBrushXL"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="XL"
+                android:textColor="#E2E8F0"
+                android:textSize="11sp"
+                android:background="@drawable/bg_brush_button_normal"
+                android:layout_marginEnd="8dp" />
+
+            <!-- Vertical Separator -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="22dp"
+                android:background="#334155"
+                android:layout_marginEnd="8dp" />
+
+            <!-- Quick Color Palette (With ring borders) -->
+            <View
+                android:id="@+id/colorBlack"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#000000"
+                android:layout_marginEnd="7dp" />
+
+            <View
+                android:id="@+id/colorRed"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#EF4444"
+                android:layout_marginEnd="7dp" />
+
+            <View
+                android:id="@+id/colorBlue"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#3B82F6"
+                android:layout_marginEnd="7dp" />
+
+            <View
+                android:id="@+id/colorGreen"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#10B981"
+                android:layout_marginEnd="7dp" />
+
+            <View
+                android:id="@+id/colorWhite"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#FFFFFF"
+                android:layout_marginEnd="2dp" />
 
         </LinearLayout>
 
     </FrameLayout>
 
-    <!-- Status Bar (Steps & Hot Memory) -->
+    <!-- Compact Modern Status Bar at Bottom -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#1E1E1E"
-        android:padding="6dp"
+        android:layout_height="26dp"
+        android:background="#11151F"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -282,10 +392,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Steps: 0 | Hot: 0 MiB"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp"
-            android:paddingStart="8dp" />
+            android:text="Steps: 0 | Hot: 0.0 MB | Warm: 0.0 MB | Cold: 0.0 MB"
+            android:textColor="#94A3B8"
+            android:textSize="11sp"
+            android:fontFamily="monospace" />
 
     </LinearLayout>
 

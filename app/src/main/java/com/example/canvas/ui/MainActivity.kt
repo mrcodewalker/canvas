@@ -110,12 +110,22 @@ class MainActivity : AppCompatActivity() {
         }
         drawingView.historyManager = newManager
         memorySampler?.updateHistoryManager(newManager)
-        tvMode.text = newManager.mode.name
+        tvMode.text = "${newManager.mode.name} ▾"
+        val modeColor = when (mode) {
+            HistoryMode.NAIVE -> Color.parseColor("#FF5252")
+            HistoryMode.DIRTY_RECT -> Color.parseColor("#FFB300")
+            HistoryMode.TIERED -> Color.parseColor("#00E676")
+        }
+        tvMode.setTextColor(modeColor)
         xRayView.currentMode = newManager.mode
         updateStats()
     }
 
     private fun setupToolbar() {
+        xRayView.onCloseClicked = {
+            xRayView.visibility = View.GONE
+        }
+
         findViewById<Button>(R.id.btnUndo).setOnClickListener {
             drawingView.undo { updateStats() }
         }
@@ -163,36 +173,58 @@ class MainActivity : AppCompatActivity() {
             demoRunner?.stop()
         }
 
-        // Brush sizes
-        findViewById<Button>(R.id.btnBrushSmall).setOnClickListener {
-            drawingView.strokeWidth = 8f
-        }
-        findViewById<Button>(R.id.btnBrushMedium).setOnClickListener {
-            drawingView.strokeWidth = 24f
-        }
-        findViewById<Button>(R.id.btnBrushLarge).setOnClickListener {
-            drawingView.strokeWidth = 64f
-        }
-        findViewById<Button>(R.id.btnBrushXL).setOnClickListener {
-            drawingView.strokeWidth = 160f
+        // Brush size selector buttons with active visual feedback
+        val btnS = findViewById<Button>(R.id.btnBrushSmall)
+        val btnM = findViewById<Button>(R.id.btnBrushMedium)
+        val btnL = findViewById<Button>(R.id.btnBrushLarge)
+        val btnXL = findViewById<Button>(R.id.btnBrushXL)
+        val brushButtons = listOf(btnS, btnM, btnL, btnXL)
+
+        fun selectBrush(btn: Button, width: Float) {
+            drawingView.strokeWidth = width
+            brushButtons.forEach {
+                if (it == btn) {
+                    it.setBackgroundResource(R.drawable.bg_brush_button_selected)
+                    it.setTextColor(Color.WHITE)
+                    it.paint.isFakeBoldText = true
+                } else {
+                    it.setBackgroundResource(R.drawable.bg_brush_button_normal)
+                    it.setTextColor(Color.parseColor("#CBD5E1"))
+                    it.paint.isFakeBoldText = false
+                }
+            }
         }
 
-        // Color palette
-        findViewById<View>(R.id.colorBlack).setOnClickListener {
-            drawingView.strokeColor = Color.BLACK
+        btnS.setOnClickListener { selectBrush(btnS, 8f) }
+        btnM.setOnClickListener { selectBrush(btnM, 24f) }
+        btnL.setOnClickListener { selectBrush(btnL, 64f) }
+        btnXL.setOnClickListener { selectBrush(btnXL, 160f) }
+
+        // Color palette buttons with active visual feedback
+        val cBlack = findViewById<View>(R.id.colorBlack)
+        val cRed = findViewById<View>(R.id.colorRed)
+        val cBlue = findViewById<View>(R.id.colorBlue)
+        val cGreen = findViewById<View>(R.id.colorGreen)
+        val cWhite = findViewById<View>(R.id.colorWhite)
+        val colorViews = listOf(cBlack, cRed, cBlue, cGreen, cWhite)
+
+        fun selectColor(view: View, color: Int) {
+            drawingView.strokeColor = color
+            colorViews.forEach {
+                val isSelected = (it == view)
+                it.scaleX = if (isSelected) 1.25f else 1.0f
+                it.scaleY = if (isSelected) 1.25f else 1.0f
+            }
         }
-        findViewById<View>(R.id.colorRed).setOnClickListener {
-            drawingView.strokeColor = Color.parseColor("#E53935")
-        }
-        findViewById<View>(R.id.colorBlue).setOnClickListener {
-            drawingView.strokeColor = Color.parseColor("#1E88E5")
-        }
-        findViewById<View>(R.id.colorGreen).setOnClickListener {
-            drawingView.strokeColor = Color.parseColor("#43A047")
-        }
-        findViewById<View>(R.id.colorWhite).setOnClickListener {
-            drawingView.strokeColor = Color.WHITE
-        }
+
+        cBlack.setOnClickListener { selectColor(cBlack, Color.BLACK) }
+        cRed.setOnClickListener { selectColor(cRed, Color.parseColor("#EF4444")) }
+        cBlue.setOnClickListener { selectColor(cBlue, Color.parseColor("#3B82F6")) }
+        cGreen.setOnClickListener { selectColor(cGreen, Color.parseColor("#10B981")) }
+        cWhite.setOnClickListener { selectColor(cWhite, Color.WHITE) }
+
+        // Default to black color selected
+        selectColor(cBlack, Color.BLACK)
     }
 
     private fun setupDemoRunner() {
