@@ -10,6 +10,9 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.canvas.R
 import com.example.canvas.bench.DemoScenarioRunner
@@ -43,7 +46,33 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Configure edge-to-edge so insets can be measured accurately
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         setContentView(R.layout.activity_main)
+
+        // Dynamically pad top and bottom containers according to status bar, display cutout, and navigation bar
+        val topContainer = findViewById<View>(R.id.topContainer)
+        val bottomContainer = findViewById<View>(R.id.bottomContainer)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.mainLayout)) { _, insets ->
+            val sysInsets = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            topContainer.setPadding(
+                topContainer.paddingLeft,
+                sysInsets.top,
+                topContainer.paddingRight,
+                topContainer.paddingBottom
+            )
+            bottomContainer.setPadding(
+                bottomContainer.paddingLeft,
+                bottomContainer.paddingTop,
+                bottomContainer.paddingRight,
+                sysInsets.bottom
+            )
+            insets
+        }
 
         drawingView = findViewById(R.id.drawingView)
         tvMode = findViewById(R.id.tvMode)

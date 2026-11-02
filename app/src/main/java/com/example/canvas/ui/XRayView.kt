@@ -271,14 +271,16 @@ class XRayView @JvmOverloads constructor(
             val x = event.x
             val y = event.y
 
-            // 1. Close Button
-            if (closeBtnRect.contains(x, y)) {
+            // 1. Close Button with generous touch target (at least 48dp)
+            val touchClose = RectF(closeBtnRect).apply { inset(-dp(12f), -dp(12f)) }
+            if (touchClose.contains(x, y)) {
                 onCloseClicked?.invoke()
                 return true
             }
 
-            // 2. Toggle Minimize Button or Tap on Header
-            if (toggleBtnRect.contains(x, y) || isMinimized || y <= cardRect.top + dp(38f)) {
+            // 2. Toggle Minimize Button with generous touch target
+            val touchToggle = RectF(toggleBtnRect).apply { inset(-dp(10f), -dp(10f)) }
+            if (touchToggle.contains(x, y) || isMinimized || y <= cardRect.top + dp(40f)) {
                 toggleMinimize()
                 return true
             }
