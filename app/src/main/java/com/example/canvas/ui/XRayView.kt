@@ -13,11 +13,11 @@ import com.example.canvas.history.HistoryMode
 import kotlin.math.max
 
 /**
- * Visual HUD overlay displaying real-time memory telemetry:
- * - 3 horizontal tier bars for Hot (Red), Warm (Amber), Cold (Cyan)
- * - 60-second scrolling RAM graph (Java Heap + Native Heap)
- * - Counters for Undo/Redo, GC runs, and Prefetch hit-rate
- * - Minimized / Expanded toggle
+ * Premium Telemetry HUD overlay displaying real-time memory dynamics:
+ * - 3 glowing horizontal bars for Hot (Coral Red), Warm (Amber Gold), Cold (Cyan Blue)
+ * - 60-second scrolling oscilloscope RAM graph (Java Heap + Native Heap)
+ * - Live counters: Steps (Undo/Redo), ART GC runs (+ delta), and Prefetch hit-rate
+ * - Smooth Collapse / Expand toggle and Close [X] action
  */
 class XRayView @JvmOverloads constructor(
     context: Context,
@@ -30,95 +30,139 @@ class XRayView @JvmOverloads constructor(
     private fun dp(v: Float): Float = v * density
     private fun sp(v: Float): Float = v * density
 
-    // Display State
+    // State
     var isMinimized: Boolean = false
         private set
 
     var currentMode: HistoryMode = HistoryMode.TIERED
+
+    var onCloseClicked: (() -> Unit)? = null
 
     private var currentTelemetry: XRayCurrentTelemetry = XRayCurrentTelemetry()
     private var telemetryPoints: List<XRayPoint> = emptyList()
 
     // Paints
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#E6101622") // Dark navy translucent
+        color = Color.parseColor("#EE0B0F19") // Deep slate semi-translucent glass
         style = Paint.Style.FILL
     }
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#334E68")
+        color = Color.parseColor("#2A374A")
         style = Paint.Style.STROKE
         strokeWidth = dp(1.5f)
     }
 
-    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#1F3A52")
-        style = Paint.Style.STROKE
-        strokeWidth = dp(1f)
+    private val pulseDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#10B981")
+        style = Paint.Style.FILL
     }
 
     private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#64B5F6")
-        textSize = sp(13f)
+        color = Color.parseColor("#38BDF8")
+        textSize = sp(12f)
         isFakeBoldText = true
+    }
+
+    private val modeBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1E293B")
+        style = Paint.Style.FILL
     }
 
     private val modePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = sp(11f)
+        textSize = sp(10.5f)
         isFakeBoldText = true
     }
 
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#CFD8DC")
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F1F5F9")
         textSize = sp(10.5f)
+        isFakeBoldText = true
     }
 
-    private val subtleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#78909C")
+    private val subLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#94A3B8")
         textSize = sp(9.5f)
     }
 
+    private val trackBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1E293B")
+        style = Paint.Style.FILL
+    }
+
     private val hotBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#FF5252") // Coral Red
+        color = Color.parseColor("#F43F5E") // Vibrant Coral Red
         style = Paint.Style.FILL
     }
 
     private val warmBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#FFB300") // Warm Amber
+        color = Color.parseColor("#F59E0B") // Rich Amber Gold
         style = Paint.Style.FILL
     }
 
     private val coldBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00E5FF") // Cyan
+        color = Color.parseColor("#06B6D4") // Cyan Neon
         style = Paint.Style.FILL
     }
 
-    private val barBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#263238")
+    private val chartBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#070A10")
         style = Paint.Style.FILL
+    }
+
+    private val chartGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1E293B")
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
     }
 
     private val javaLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00E676") // Neon Green
+        color = Color.parseColor("#10B981") // Emerald Green
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
     }
 
     private val nativeLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#7C4DFF") // Deep Purple / Violet
+        color = Color.parseColor("#818CF8") // Indigo Violet
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
     }
 
     private val totalFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#2200E5FF") // Very soft cyan fill
+        color = Color.parseColor("#1A06B6D4")
         style = Paint.Style.FILL
     }
 
-    // Cached geometries
+    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#161E2E")
+        style = Paint.Style.FILL
+    }
+
+    private val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#2A374A")
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+    }
+
+    private val btnTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#CBD5E1")
+        textSize = sp(10f)
+        isFakeBoldText = true
+    }
+
+    private val closeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F87171")
+        textSize = sp(12f)
+        isFakeBoldText = true
+    }
+
+    // Geometries
     private val cardRect = RectF()
     private val barRect = RectF()
     private val chartRect = RectF()
+    private val badgeRect = RectF()
+    private val toggleBtnRect = RectF()
+    private val closeBtnRect = RectF()
     private val pathTotal = Path()
     private val pathJava = Path()
     private val pathNative = Path()
@@ -136,35 +180,36 @@ class XRayView @JvmOverloads constructor(
         invalidate()
     }
 
-    var onCloseClicked: (() -> Unit)? = null
-
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // If touch is outside the card bounds, pass it through to the canvas underneath!
         if (!cardRect.contains(event.x, event.y)) {
             return false
         }
         if (event.action == MotionEvent.ACTION_UP) {
             val x = event.x
             val y = event.y
-            // Check close button tap (rightmost 32dp of header)
-            if (x >= cardRect.right - dp(32f) && y <= cardRect.top + dp(36f)) {
-                onCloseClicked?.invoke() ?: run { visibility = GONE }
+
+            // 1. Check Close Button tap
+            if (closeBtnRect.contains(x, y)) {
+                onCloseClicked?.invoke()
                 return true
             }
-            // Check header tap to toggle minimize
-            if (isMinimized || y <= cardRect.top + dp(36f)) {
+
+            // 2. Check Toggle Minimize tap or Header tap
+            if (toggleBtnRect.contains(x, y) || isMinimized || y <= cardRect.top + dp(38f)) {
                 toggleMinimize()
                 return true
             }
         }
-        return true // Consume touch inside HUD so it doesn't draw through
+        return true // Touch is inside the HUD card, consume it
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val desiredHeight = if (isMinimized) {
-            dp(38f).toInt()
+            dp(42f).toInt()
         } else {
-            dp(275f).toInt()
+            dp(245f).toInt()
         }
         setMeasuredDimension(width, resolveSize(desiredHeight, heightMeasureSpec))
     }
@@ -176,33 +221,61 @@ class XRayView @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0 || h <= 0) return
 
-        val padding = dp(8f)
-        val radius = dp(10f)
+        val padding = dp(4f)
+        val radius = dp(14f)
 
         cardRect.set(padding, padding, w - padding, h - padding)
 
-        // Draw card background
+        // Draw card background & subtle glow border
         canvas.drawRoundRect(cardRect, radius, radius, bgPaint)
         canvas.drawRoundRect(cardRect, radius, radius, borderPaint)
 
-        // Header
-        val headerY = cardRect.top + dp(18f)
-        canvas.drawText("⚡ MEMORY X-RAY", cardRect.left + dp(10f), headerY, titlePaint)
+        // Header elements
+        val headerY = cardRect.top + dp(22f)
+        val startX = cardRect.left + dp(12f)
 
-        // Mode badge
+        // Pulsing live indicator dot
+        canvas.drawCircle(startX + dp(4f), headerY - dp(4f), dp(3.5f), pulseDotPaint)
+
+        // Title
+        canvas.drawText("CHRONOS X-RAY", startX + dp(14f), headerY, titlePaint)
+
+        // Mode badge pill
         val modeColor = when (currentMode) {
-            HistoryMode.NAIVE -> Color.parseColor("#FF5252")
-            HistoryMode.DIRTY_RECT -> Color.parseColor("#FFB300")
-            HistoryMode.TIERED -> Color.parseColor("#00E676")
+            HistoryMode.NAIVE -> Color.parseColor("#F43F5E")
+            HistoryMode.DIRTY_RECT -> Color.parseColor("#F59E0B")
+            HistoryMode.TIERED -> Color.parseColor("#10B981")
         }
         modePaint.color = modeColor
         val modeText = "[${currentMode.name}]"
-        canvas.drawText(modeText, cardRect.left + dp(135f), headerY, modePaint)
+        val titleWidth = titlePaint.measureText("CHRONOS X-RAY")
+        val badgeLeft = startX + dp(20f) + titleWidth
+        val badgeW = modePaint.measureText(modeText) + dp(12f)
+        badgeRect.set(badgeLeft, headerY - dp(14f), badgeLeft + badgeW, headerY + dp(4f))
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), modeBadgeBgPaint)
+        canvas.drawText(modeText, badgeLeft + dp(6f), headerY - dp(1f), modePaint)
 
-        // Close button '✕' and Minimize/Expand indicator
-        canvas.drawText("✕", cardRect.right - dp(20f), headerY, titlePaint)
-        val toggleText = if (isMinimized) "▼ Expand" else "▲ Minimize"
-        canvas.drawText(toggleText, cardRect.right - dp(95f), headerY, subtleTextPaint)
+        // Close Button [X] at top-right
+        val closeW = dp(24f)
+        val closeH = dp(24f)
+        val closeRight = cardRect.right - dp(8f)
+        val closeLeft = closeRight - closeW
+        val closeTop = headerY - dp(14f)
+        val closeBottom = closeTop + closeH
+        closeBtnRect.set(closeLeft, closeTop, closeRight, closeBottom)
+        canvas.drawRoundRect(closeBtnRect, dp(6f), dp(6f), modeBadgeBgPaint)
+        val xTextW = closeTextPaint.measureText("✕")
+        canvas.drawText("✕", closeLeft + (closeW - xTextW) / 2f, headerY - dp(1f), closeTextPaint)
+
+        // Toggle Minimize / Expand Button
+        val toggleText = if (isMinimized) "▼ Mở rộng" else "▲ Thu gọn"
+        val toggleW = btnTextPaint.measureText(toggleText) + dp(14f)
+        val toggleH = dp(24f)
+        val toggleRight = closeLeft - dp(6f)
+        val toggleLeft = toggleRight - toggleW
+        toggleBtnRect.set(toggleLeft, closeTop, toggleRight, closeBottom)
+        canvas.drawRoundRect(toggleBtnRect, dp(6f), dp(6f), modeBadgeBgPaint)
+        canvas.drawText(toggleText, toggleLeft + dp(7f), headerY - dp(1f), btnTextPaint)
 
         if (isMinimized) {
             drawMinimizedContent(canvas, cardRect)
@@ -214,103 +287,116 @@ class XRayView @JvmOverloads constructor(
     private fun drawMinimizedContent(canvas: Canvas, bounds: RectF) {
         val tel = currentTelemetry
         val totalMb = tel.currentJavaHeapMb + tel.currentNativeHeapMb
-        val text = "Total: %.1f MB (H:%.1f | W:%.1f | C:%.1f) | Steps: %d".format(
+        val text = "RAM: %.1f MB (H:%.1f | W:%.1f | C:%.1f MB) • %d steps".format(
             totalMb, tel.hotMb, tel.warmMb, tel.coldMb, tel.totalSteps
         )
-        canvas.drawText(text, bounds.left + dp(10f), bounds.top + dp(30f), textPaint)
+        canvas.drawText(text, bounds.left + dp(12f), bounds.top + dp(32f), labelPaint)
     }
 
     private fun drawExpandedContent(canvas: Canvas, bounds: RectF) {
         val tel = currentTelemetry
-        var currentY = bounds.top + dp(34f)
+        var currentY = bounds.top + dp(38f)
 
-        // 1. Tier Bars (Hot, Warm, Cold)
-        val barTotalCapacityMb = max(1f, max(tel.hotMb + tel.warmMb + tel.coldMb, tel.peakHeapMb))
-        val barWidthAvailable = bounds.width() - dp(20f)
-        val barLeft = bounds.left + dp(10f)
-        val barHeight = dp(14f)
+        val availableWidth = bounds.width() - dp(24f)
+        val left = bounds.left + dp(12f)
+        val barHeight = dp(10f)
+        val barCapacityMb = max(1f, max(tel.hotMb + tel.warmMb + tel.coldMb, tel.peakHeapMb))
 
+        // 1. Three Tier Bars (Hot, Warm, Cold)
         // Hot Bar
-        canvas.drawText(
-            "HOT: %.1f MiB (%d steps)".format(tel.hotMb, tel.hotSteps),
-            barLeft, currentY + dp(10f), textPaint
-        )
-        currentY += dp(14f)
-        barRect.set(barLeft, currentY, barLeft + barWidthAvailable, currentY + barHeight)
-        canvas.drawRoundRect(barRect, dp(4f), dp(4f), barBgPaint)
-        val hotFraction = (tel.hotMb / barTotalCapacityMb).coerceIn(0f, 1f)
-        if (hotFraction > 0f) {
-            barRect.set(barLeft, currentY, barLeft + (barWidthAvailable * hotFraction), currentY + barHeight)
-            canvas.drawRoundRect(barRect, dp(4f), dp(4f), hotBarPaint)
+        canvas.drawText("🔥 HOT (Bitmap • O(1))", left, currentY + dp(8f), labelPaint)
+        val hotValText = "%.2f MiB (%d steps)".format(tel.hotMb, tel.hotSteps)
+        val hotValWidth = subLabelPaint.measureText(hotValText)
+        canvas.drawText(hotValText, bounds.right - dp(12f) - hotValWidth, currentY + dp(8f), subLabelPaint)
+        currentY += dp(11f)
+
+        barRect.set(left, currentY, left + availableWidth, currentY + barHeight)
+        canvas.drawRoundRect(barRect, dp(5f), dp(5f), trackBgPaint)
+        val hotFrac = (tel.hotMb / barCapacityMb).coerceIn(0f, 1f)
+        if (hotFrac > 0f) {
+            barRect.set(left, currentY, left + (availableWidth * hotFrac), currentY + barHeight)
+            canvas.drawRoundRect(barRect, dp(5f), dp(5f), hotBarPaint)
         }
-        currentY += barHeight + dp(6f)
+        currentY += barHeight + dp(5f)
 
         // Warm Bar
-        canvas.drawText(
-            "WARM: %.1f MiB (%d steps)".format(tel.warmMb, tel.warmSteps),
-            barLeft, currentY + dp(10f), textPaint
-        )
-        currentY += dp(14f)
-        barRect.set(barLeft, currentY, barLeft + barWidthAvailable, currentY + barHeight)
-        canvas.drawRoundRect(barRect, dp(4f), dp(4f), barBgPaint)
-        val warmFraction = (tel.warmMb / barTotalCapacityMb).coerceIn(0f, 1f)
-        if (warmFraction > 0f) {
-            barRect.set(barLeft, currentY, barLeft + (barWidthAvailable * warmFraction), currentY + barHeight)
-            canvas.drawRoundRect(barRect, dp(4f), dp(4f), warmBarPaint)
+        canvas.drawText("⚡ WARM (Deflate • O(logN))", left, currentY + dp(8f), labelPaint)
+        val warmValText = "%.2f MiB (%d steps)".format(tel.warmMb, tel.warmSteps)
+        val warmValWidth = subLabelPaint.measureText(warmValText)
+        canvas.drawText(warmValText, bounds.right - dp(12f) - warmValWidth, currentY + dp(8f), subLabelPaint)
+        currentY += dp(11f)
+
+        barRect.set(left, currentY, left + availableWidth, currentY + barHeight)
+        canvas.drawRoundRect(barRect, dp(5f), dp(5f), trackBgPaint)
+        val warmFrac = (tel.warmMb / barCapacityMb).coerceIn(0f, 1f)
+        if (warmFrac > 0f) {
+            barRect.set(left, currentY, left + (availableWidth * warmFrac), currentY + barHeight)
+            canvas.drawRoundRect(barRect, dp(5f), dp(5f), warmBarPaint)
         }
-        currentY += barHeight + dp(6f)
+        currentY += barHeight + dp(5f)
 
         // Cold Bar
-        canvas.drawText(
-            "COLD: %.1f MiB (%d steps)".format(tel.coldMb, tel.coldSteps),
-            barLeft, currentY + dp(10f), textPaint
-        )
-        currentY += dp(14f)
-        barRect.set(barLeft, currentY, barLeft + barWidthAvailable, currentY + barHeight)
-        canvas.drawRoundRect(barRect, dp(4f), dp(4f), barBgPaint)
-        val coldFraction = (tel.coldMb / barTotalCapacityMb).coerceIn(0f, 1f)
-        if (coldFraction > 0f) {
-            barRect.set(barLeft, currentY, barLeft + (barWidthAvailable * coldFraction), currentY + barHeight)
-            canvas.drawRoundRect(barRect, dp(4f), dp(4f), coldBarPaint)
+        canvas.drawText("❄️ COLD (Disk • O(Disk))", left, currentY + dp(8f), labelPaint)
+        val coldValText = "%.2f MiB (%d steps)".format(tel.coldMb, tel.coldSteps)
+        val coldValWidth = subLabelPaint.measureText(coldValText)
+        canvas.drawText(coldValText, bounds.right - dp(12f) - coldValWidth, currentY + dp(8f), subLabelPaint)
+        currentY += dp(11f)
+
+        barRect.set(left, currentY, left + availableWidth, currentY + barHeight)
+        canvas.drawRoundRect(barRect, dp(5f), dp(5f), trackBgPaint)
+        val coldFrac = (tel.coldMb / barCapacityMb).coerceIn(0f, 1f)
+        if (coldFrac > 0f) {
+            barRect.set(left, currentY, left + (availableWidth * coldFrac), currentY + barHeight)
+            canvas.drawRoundRect(barRect, dp(5f), dp(5f), coldBarPaint)
         }
-        currentY += barHeight + dp(10f)
+        currentY += barHeight + dp(8f)
 
-        // 2. 60-Second Memory Graph
-        val chartLeft = barLeft
-        val chartRight = bounds.right - dp(10f)
+        // 2. 60-Second Oscilloscope Graph
         val chartTop = currentY
-        val chartBottom = chartTop + dp(70f)
-        chartRect.set(chartLeft, chartTop, chartRight, chartBottom)
+        val chartBottom = chartTop + dp(56f)
+        chartRect.set(left, chartTop, bounds.right - dp(12f), chartBottom)
 
-        // Chart background grid
-        canvas.drawRect(chartRect, barBgPaint)
-        canvas.drawRect(chartRect, gridPaint)
+        canvas.drawRoundRect(chartRect, dp(6f), dp(6f), chartBgPaint)
+        canvas.drawRoundRect(chartRect, dp(6f), dp(6f), chartGridPaint)
         val midY = (chartTop + chartBottom) / 2f
-        canvas.drawLine(chartLeft, midY, chartRight, midY, gridPaint)
+        canvas.drawLine(left, midY, bounds.right - dp(12f), midY, chartGridPaint)
 
-        // Draw rolling line graphs
         drawChartLines(canvas, chartRect)
 
-        // Chart labels
+        // Graph annotations
         val peakLabel = "Peak: %.1f MB".format(tel.peakHeapMb)
-        canvas.drawText(peakLabel, chartLeft + dp(4f), chartTop + dp(10f), subtleTextPaint)
-        canvas.drawText("-60s", chartLeft + dp(2f), chartBottom - dp(2f), subtleTextPaint)
-        canvas.drawText("Now", chartRight - dp(22f), chartBottom - dp(2f), subtleTextPaint)
+        canvas.drawText(peakLabel, left + dp(6f), chartTop + dp(12f), subLabelPaint)
+        canvas.drawText("-60s", left + dp(6f), chartBottom - dp(4f), subLabelPaint)
+        canvas.drawText("Now", bounds.right - dp(36f), chartBottom - dp(4f), subLabelPaint)
 
-        currentY = chartBottom + dp(14f)
+        currentY = chartBottom + dp(10f)
 
-        // 3. Stats & Telemetry Counters Row
+        // 3. Bottom Pill Counters
+        val pillWidth = (availableWidth - dp(12f)) / 3f
+        val pillHeight = dp(20f)
+
+        // Pill 1: Steps
+        badgeRect.set(left, currentY, left + pillWidth, currentY + pillHeight)
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), badgeBgPaint)
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), badgeBorderPaint)
+        val stepsText = "Steps: %d (%d redo)".format(tel.totalSteps, tel.redoSteps)
+        canvas.drawText(stepsText, left + dp(6f), currentY + dp(14f), subLabelPaint)
+
+        // Pill 2: GC
+        val p2Left = left + pillWidth + dp(6f)
+        badgeRect.set(p2Left, currentY, p2Left + pillWidth, currentY + pillHeight)
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), badgeBgPaint)
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), badgeBorderPaint)
         val gcText = if (tel.gcCount >= 0) "GC: %d (+%d)".format(tel.gcCount, tel.gcDelta) else "GC: N/A"
-        val prefetchText = "Prefetch: %d/%d (%.0f%%)".format(
-            tel.prefetchHits,
-            tel.prefetchHits + tel.prefetchMisses,
-            tel.prefetchHitRate
-        )
-        val stepsText = "Steps: %d (Redo: %d)".format(tel.totalSteps, tel.redoSteps)
+        canvas.drawText(gcText, p2Left + dp(6f), currentY + dp(14f), subLabelPaint)
 
-        canvas.drawText(stepsText, barLeft, currentY, textPaint)
-        canvas.drawText(gcText, barLeft + dp(115f), currentY, textPaint)
-        canvas.drawText(prefetchText, barLeft + dp(185f), currentY, textPaint)
+        // Pill 3: Prefetch
+        val p3Left = p2Left + pillWidth + dp(6f)
+        badgeRect.set(p3Left, currentY, p3Left + pillWidth, currentY + pillHeight)
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), badgeBgPaint)
+        canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), badgeBorderPaint)
+        val prefetchText = "Prefetch: %.0f%%".format(tel.prefetchHitRate)
+        canvas.drawText(prefetchText, p3Left + dp(6f), currentY + dp(14f), subLabelPaint)
     }
 
     private fun drawChartLines(canvas: Canvas, rect: RectF) {
@@ -318,7 +404,7 @@ class XRayView @JvmOverloads constructor(
         if (points.isEmpty()) return
 
         val now = points.last().timestampMs
-        val windowDuration = 60_000f // 60 seconds
+        val windowDuration = 60_000f
         val windowStart = now - windowDuration
 
         val maxMb = max(10f, currentTelemetry.peakHeapMb * 1.15f)

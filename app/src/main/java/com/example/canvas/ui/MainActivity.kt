@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
                 HistoryMode.TIERED -> HistoryMode.NAIVE
             }
             switchMode(nextMode)
+            Toast.makeText(this, "Chế độ: ${nextMode.name}", Toast.LENGTH_SHORT).show()
         }
 
         setupToolbar()
@@ -122,33 +123,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupToolbar() {
+        val btnToggleXRay = findViewById<Button>(R.id.btnToggleXRay)
+
         xRayView.onCloseClicked = {
             xRayView.visibility = View.GONE
+            btnToggleXRay.setBackgroundResource(R.drawable.bg_toolbar_pill)
+            Toast.makeText(this, "Đã ẩn X-Ray HUD (bấm nút 'HUD X-Ray' để mở lại)", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.btnUndo).setOnClickListener {
-            drawingView.undo { updateStats() }
+            drawingView.undo { undone ->
+                updateStats()
+                if (!undone) {
+                    Toast.makeText(this, "Không có nét vẽ để Undo", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
 
         findViewById<Button>(R.id.btnRedo).setOnClickListener {
-            drawingView.redo { updateStats() }
+            drawingView.redo { redone ->
+                updateStats()
+                if (!redone) {
+                    Toast.makeText(this, "Không có nét vẽ để Redo", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
 
         findViewById<Button>(R.id.btnClear).setOnClickListener {
             drawingView.clearCanvas()
             updateStats()
+            Toast.makeText(this, "Đã xóa toàn bộ Canvas", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.btnFill).setOnClickListener {
             drawingView.fillCanvas(drawingView.strokeColor)
             updateStats()
+            Toast.makeText(this, "Đã Fill 16MB snapshot (2048x2048 ARGB_8888)", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.btnStress).setOnClickListener {
             @Suppress("DEPRECATION")
             drawingView.historyManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
-            Toast.makeText(this, "Memory Stress: Demoted Hot to Warm/Cold", Toast.LENGTH_SHORT).show()
             updateStats()
+            Toast.makeText(this, "⚡ Memory Stress: Đẩy Hot sang Warm/Cold!", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.btnBenchmark).setOnClickListener {
@@ -156,21 +173,32 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
-        findViewById<Button>(R.id.btnToggleXRay).setOnClickListener {
+        btnToggleXRay.setOnClickListener {
             val isVis = xRayView.visibility == View.VISIBLE
-            xRayView.visibility = if (isVis) View.GONE else View.VISIBLE
+            if (isVis) {
+                xRayView.visibility = View.GONE
+                btnToggleXRay.setBackgroundResource(R.drawable.bg_toolbar_pill)
+                Toast.makeText(this, "Đã ẩn X-Ray HUD", Toast.LENGTH_SHORT).show()
+            } else {
+                xRayView.visibility = View.VISIBLE
+                btnToggleXRay.setBackgroundResource(R.drawable.bg_toolbar_pill_accent)
+                Toast.makeText(this, "Đã mở X-Ray HUD", Toast.LENGTH_SHORT).show()
+            }
         }
 
         findViewById<Button>(R.id.btnDemo3Min).setOnClickListener {
             if (demoRunner?.isDemoRunning == true) {
                 demoRunner?.stop()
+                Toast.makeText(this, "Đã dừng Demo", Toast.LENGTH_SHORT).show()
             } else {
                 startDemo()
+                Toast.makeText(this, "Bắt đầu kịch bản Demo 3 phút SWAM...", Toast.LENGTH_SHORT).show()
             }
         }
 
         btnStopDemo.setOnClickListener {
             demoRunner?.stop()
+            Toast.makeText(this, "Đã dừng Demo", Toast.LENGTH_SHORT).show()
         }
 
         // Brush size selector buttons with active visual feedback
