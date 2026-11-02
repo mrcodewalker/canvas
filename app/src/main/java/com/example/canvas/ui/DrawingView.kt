@@ -136,6 +136,14 @@ class DrawingView @JvmOverloads constructor(
         return super.onTouchEvent(event)
     }
 
+    /**
+     * Executes and commits a programmatic stroke without requiring touch events.
+     */
+    fun drawProgrammaticStroke(stroke: Stroke) {
+        commitStroke(stroke)
+        invalidate()
+    }
+
     private fun commitStroke(stroke: Stroke) {
         // 1. Capture before patch
         val beforePatch: Patch = if (historyManager.mode == HistoryMode.NAIVE) {

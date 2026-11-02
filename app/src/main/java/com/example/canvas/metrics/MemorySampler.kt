@@ -14,12 +14,16 @@ import kotlinx.coroutines.launch
  * and history tier sizes every 250 ms.
  */
 class MemorySampler(
-    private val historyManager: HistoryManager,
+    private var historyManager: HistoryManager,
     val intervalMs: Long = 250L,
     private val onSample: (MemorySnapshot) -> Unit
 ) {
     private var job: Job? = null
     private var startTimestampMs: Long = 0L
+
+    fun updateHistoryManager(newHistoryManager: HistoryManager) {
+        historyManager = newHistoryManager
+    }
 
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return

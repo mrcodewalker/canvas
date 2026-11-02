@@ -84,6 +84,26 @@
                 android:text="Benchmark"
                 android:textAllCaps="false"
                 android:textColor="#00E676"
+                android:layout_marginEnd="6dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <Button
+                android:id="@+id/btnToggleXRay"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="X-Ray"
+                android:textAllCaps="false"
+                android:textColor="#64B5F6"
+                android:layout_marginEnd="6dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <Button
+                android:id="@+id/btnDemo3Min"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Demo 3P"
+                android:textAllCaps="false"
+                android:textColor="#FFB300"
                 android:layout_marginEnd="12dp"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
@@ -171,12 +191,82 @@
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- Canvas Container -->
-    <com.example.canvas.ui.DrawingView
-        android:id="@+id/drawingView"
+    <!-- Canvas Container with X-Ray Overlay and Demo Banner -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1">
+
+        <com.example.canvas.ui.DrawingView
+            android:id="@+id/drawingView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <com.example.canvas.ui.XRayView
+            android:id="@+id/xRayView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_margin="8dp" />
+
+        <!-- Demo Narration Banner -->
+        <LinearLayout
+            android:id="@+id/demoBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="#E6212121"
+            android:padding="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvDemoPhase"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="PHASE 1: NAIVE (0:00 / 3:00)"
+                    android:textColor="#FFB300"
+                    android:textStyle="bold"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnStopDemo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="Stop Demo"
+                    android:textAllCaps="false"
+                    android:textColor="#FF5252"
+                    style="@style/Widget.MaterialComponents.Button.TextButton" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/pbDemoProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:max="180"
+                android:progress="0"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="6dp" />
+
+            <TextView
+                android:id="@+id/tvDemoInstruction"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Observing memory dynamics..."
+                android:textColor="#ECEFF1"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
+    </FrameLayout>
 
     <!-- Status Bar (Steps & Hot Memory) -->
     <LinearLayout

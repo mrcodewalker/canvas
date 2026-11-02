@@ -1,15 +1,24 @@
 package com.example.canvas.ui
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.canvas.R
-import com.example.canvas.history.NaiveHistory
+import com.example.canvas.bench.DemoScenarioRunner
 import com.example.canvas.history.DirtyRectHistory
+import com.example.canvas.history.HistoryManager
+import com.example.canvas.history.HistoryMode
+import com.example.canvas.history.NaiveHistory
 import com.example.canvas.history.TieredHistory
+import com.example.canvas.metrics.MemorySampler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -19,6 +28,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawingView: DrawingView
     private lateinit var tvMode: TextView
     private lateinit var tvStats: TextView
+    private lateinit var xRayView: XRayView
+
+    // Demo banner views
+    private lateinit var demoBanner: LinearLayout
+    private lateinit var tvDemoPhase: TextView
+    private lateinit var pbDemoProgress: ProgressBar
+    private lateinit var tvDemoInstruction: TextView
+    private lateinit var btnStopDemo: Button
+
+    private val xRayTelemetryTracker = XRayTelemetryTracker(windowDurationMs = 60_000L)
+    private var memorySampler: MemorySampler? = null
+    private var demoRunner: DemoScenarioRunner? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,25 +48,71 @@ class MainActivity : AppCompatActivity() {
         drawingView = findViewById(R.id.drawingView)
         tvMode = findViewById(R.id.tvMode)
         tvStats = findViewById(R.id.tvStats)
+        xRayView = findViewById(R.id.xRayView)
+
+        demoBanner = findViewById(R.id.demoBanner)
+        tvDemoPhase = findViewById(R.id.tvDemoPhase)
+        pbDemoProgress = findViewById(R.id.pbDemoProgress)
+        tvDemoInstruction = findViewById(R.id.tvDemoInstruction)
+        btnStopDemo = findViewById(R.id.btnStopDemo)
 
         // Default to TIERED (main theme of the project)
-        drawingView.historyManager = TieredHistory.create(this)
-        tvMode.text = drawingView.historyManager.mode.name
+        switchMode(HistoryMode.TIERED)
 
-        // Click to cycle modes
+        // Click mode badge to cycle modes manually
         tvMode.setOnClickListener {
-            val nextManager: com.example.canvas.history.HistoryManager = when (drawingView.historyManager.mode) {
-                com.example.canvas.history.HistoryMode.NAIVE -> com.example.canvas.history.DirtyRectHistory()
-                com.example.canvas.history.HistoryMode.DIRTY_RECT -> com.example.canvas.history.TieredHistory.create(this)
-                com.example.canvas.history.HistoryMode.TIERED -> com.example.canvas.history.NaiveHistory()
+            val nextMode = when (drawingView.historyManager.mode) {
+                HistoryMode.NAIVE -> HistoryMode.DIRTY_RECT
+                HistoryMode.DIRTY_RECT -> HistoryMode.TIERED
+                HistoryMode.TIERED -> HistoryMode.NAIVE
             }
-            drawingView.historyManager = nextManager
-            tvMode.text = nextManager.mode.name
-            updateStats()
+            switchMode(nextMode)
         }
 
         setupToolbar()
-        startStatsMonitor()
+        initSampler()
+        setupDemoRunner()
+    }
+
+    private fun initSampler() {
+        memorySampler = MemorySampler(
+            historyManager = drawingView.historyManager,
+            intervalMs = 250L
+        ) { snapshot ->
+            runOnUiThread {
+                xRayTelemetryTracker.addSample(snapshot, drawingView.historyManager.stats())
+                xRayView.updateTelemetry(xRayTelemetryTracker, drawingView.historyManager.mode)
+                updateStats()
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        memorySampler?.start(lifecycleScope)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        memorySampler?.stop()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        demoRunner?.stop()
+    }
+
+    fun switchMode(mode: HistoryMode) {
+        val newManager: HistoryManager = when (mode) {
+            HistoryMode.NAIVE -> NaiveHistory()
+            HistoryMode.DIRTY_RECT -> DirtyRectHistory()
+            HistoryMode.TIERED -> TieredHistory.create(this)
+        }
+        drawingView.historyManager = newManager
+        memorySampler?.updateHistoryManager(newManager)
+        tvMode.text = newManager.mode.name
+        xRayView.currentMode = newManager.mode
+        updateStats()
     }
 
     private fun setupToolbar() {
@@ -70,13 +137,30 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnStress).setOnClickListener {
             @Suppress("DEPRECATION")
             drawingView.historyManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
-            android.widget.Toast.makeText(this, "Memory Stress: Demoted Hot to Warm/Cold", android.widget.Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Memory Stress: Demoted Hot to Warm/Cold", Toast.LENGTH_SHORT).show()
             updateStats()
         }
 
         findViewById<Button>(R.id.btnBenchmark).setOnClickListener {
-            val intent = android.content.Intent(this, BenchmarkActivity::class.java)
+            val intent = Intent(this, BenchmarkActivity::class.java)
             startActivity(intent)
+        }
+
+        findViewById<Button>(R.id.btnToggleXRay).setOnClickListener {
+            val isVis = xRayView.visibility == View.VISIBLE
+            xRayView.visibility = if (isVis) View.GONE else View.VISIBLE
+        }
+
+        findViewById<Button>(R.id.btnDemo3Min).setOnClickListener {
+            if (demoRunner?.isDemoRunning == true) {
+                demoRunner?.stop()
+            } else {
+                startDemo()
+            }
+        }
+
+        btnStopDemo.setOnClickListener {
+            demoRunner?.stop()
         }
 
         // Brush sizes
@@ -94,30 +178,76 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Color palette
-        findViewById<android.view.View>(R.id.colorBlack).setOnClickListener {
+        findViewById<View>(R.id.colorBlack).setOnClickListener {
             drawingView.strokeColor = Color.BLACK
         }
-        findViewById<android.view.View>(R.id.colorRed).setOnClickListener {
+        findViewById<View>(R.id.colorRed).setOnClickListener {
             drawingView.strokeColor = Color.parseColor("#E53935")
         }
-        findViewById<android.view.View>(R.id.colorBlue).setOnClickListener {
+        findViewById<View>(R.id.colorBlue).setOnClickListener {
             drawingView.strokeColor = Color.parseColor("#1E88E5")
         }
-        findViewById<android.view.View>(R.id.colorGreen).setOnClickListener {
+        findViewById<View>(R.id.colorGreen).setOnClickListener {
             drawingView.strokeColor = Color.parseColor("#43A047")
         }
-        findViewById<android.view.View>(R.id.colorWhite).setOnClickListener {
+        findViewById<View>(R.id.colorWhite).setOnClickListener {
             drawingView.strokeColor = Color.WHITE
         }
     }
 
-    private fun startStatsMonitor() {
-        lifecycleScope.launch {
-            while (isActive) {
-                updateStats()
-                delay(300)
+    private fun setupDemoRunner() {
+        demoRunner = DemoScenarioRunner(
+            timeScale = 1.0f,
+            onStateUpdate = { state ->
+                runOnUiThread {
+                    if (state.isRunning) {
+                        demoBanner.visibility = View.VISIBLE
+                        val min = state.elapsedSeconds / 60
+                        val sec = state.elapsedSeconds % 60
+                        tvDemoPhase.text = "%s (%d:%02d / 3:00)".format(
+                            state.currentPhase.title, min, sec
+                        )
+                        pbDemoProgress.progress = state.elapsedSeconds
+                        tvDemoInstruction.text = state.currentInstruction
+                    } else {
+                        demoBanner.visibility = View.GONE
+                    }
+                }
+            },
+            onSwitchMode = { mode ->
+                runOnUiThread {
+                    switchMode(mode)
+                }
+            },
+            onDrawStroke = { stroke ->
+                runOnUiThread {
+                    drawingView.drawProgrammaticStroke(stroke)
+                }
+            },
+            onUndo = {
+                runOnUiThread {
+                    drawingView.undo { updateStats() }
+                }
+            },
+            onStress = {
+                runOnUiThread {
+                    @Suppress("DEPRECATION")
+                    drawingView.historyManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+                    updateStats()
+                }
+            },
+            onClearCanvas = {
+                runOnUiThread {
+                    drawingView.clearCanvas()
+                }
             }
-        }
+        )
+    }
+
+    private fun startDemo() {
+        // Ensure X-Ray overlay is visible when demo runs
+        xRayView.visibility = View.VISIBLE
+        demoRunner?.start(lifecycleScope)
     }
 
     private fun updateStats() {

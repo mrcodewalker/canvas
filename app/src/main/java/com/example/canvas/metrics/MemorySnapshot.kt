@@ -15,16 +15,16 @@ package com.example.canvas.metrics
  * @param totalSteps Total undoable steps currently in history.
  */
 data class MemorySnapshot(
-    val timestampMs: Long,
-    val elapsedMs: Long,
-    val javaHeapBytes: Long,
-    val nativeHeapBytes: Long,
-    val pssBytes: Long,
-    val gcCount: Long,
-    val hotBytes: Long,
-    val warmBytes: Long,
-    val coldBytes: Long,
-    val totalSteps: Int
+    val timestampMs: Long = 0L,
+    val elapsedMs: Long = 0L,
+    val javaHeapBytes: Long = 0L,
+    val nativeHeapBytes: Long = 0L,
+    val pssBytes: Long = 0L,
+    val gcCount: Long = 0L,
+    val hotBytes: Long = 0L,
+    val warmBytes: Long = 0L,
+    val coldBytes: Long = 0L,
+    val totalSteps: Int = 0
 ) {
     val javaHeapMb: Double get() = javaHeapBytes / (1024.0 * 1024.0)
     val nativeHeapMb: Double get() = nativeHeapBytes / (1024.0 * 1024.0)
