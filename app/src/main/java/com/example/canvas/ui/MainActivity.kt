@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.canvas.R
 import com.example.canvas.history.NaiveHistory
+import com.example.canvas.history.DirtyRectHistory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -26,9 +27,21 @@ class MainActivity : AppCompatActivity() {
         tvMode = findViewById(R.id.tvMode)
         tvStats = findViewById(R.id.tvStats)
 
-        // Stage 1 uses NaiveHistory
-        drawingView.historyManager = NaiveHistory()
+        // Default to DIRTY_RECT or NAIVE
+        drawingView.historyManager = DirtyRectHistory()
         tvMode.text = drawingView.historyManager.mode.name
+
+        // Click to toggle mode
+        tvMode.setOnClickListener {
+            val newMode = if (drawingView.historyManager.mode == com.example.canvas.history.HistoryMode.NAIVE) {
+                com.example.canvas.history.DirtyRectHistory()
+            } else {
+                com.example.canvas.history.NaiveHistory()
+            }
+            drawingView.historyManager = newMode
+            tvMode.text = newMode.mode.name
+            updateStats()
+        }
 
         setupToolbar()
         startStatsMonitor()
