@@ -215,10 +215,12 @@ class MainActivity : AppCompatActivity() {
                     it.setBackgroundResource(R.drawable.bg_brush_button_selected)
                     it.setTextColor(Color.WHITE)
                     it.paint.isFakeBoldText = true
+                    it.animate().scaleX(1.12f).scaleY(1.12f).setDuration(120).start()
                 } else {
                     it.setBackgroundResource(R.drawable.bg_brush_button_normal)
                     it.setTextColor(Color.parseColor("#CBD5E1"))
                     it.paint.isFakeBoldText = false
+                    it.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
                 }
             }
         }
@@ -239,9 +241,11 @@ class MainActivity : AppCompatActivity() {
         fun selectColor(view: View, color: Int) {
             drawingView.strokeColor = color
             colorViews.forEach {
-                val isSelected = (it == view)
-                it.scaleX = if (isSelected) 1.25f else 1.0f
-                it.scaleY = if (isSelected) 1.25f else 1.0f
+                if (it == view) {
+                    it.animate().scaleX(1.28f).scaleY(1.28f).setDuration(120).start()
+                } else {
+                    it.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                }
             }
         }
 

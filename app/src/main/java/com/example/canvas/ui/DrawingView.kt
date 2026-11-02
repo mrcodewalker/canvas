@@ -62,12 +62,12 @@ class DrawingView @JvmOverloads constructor(
 
     private val borderPaint = Paint().apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2f
-        color = Color.parseColor("#333333")
+        strokeWidth = 3f
+        color = Color.parseColor("#26344A")
     }
 
     private val bgPaint = Paint().apply {
-        color = Color.parseColor("#181818")
+        color = Color.parseColor("#070A11")
     }
 
     init {

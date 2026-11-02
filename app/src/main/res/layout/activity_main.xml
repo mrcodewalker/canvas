@@ -1,37 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/mainLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#0A0E17">
+    android:background="#070A11">
 
-    <!-- Top Action Bar: Row 1 (Core Mode & Drawing Operations) -->
-    <HorizontalScrollView
+    <!-- 1. Full-Screen Drawing Canvas (The Hero Surface) -->
+    <com.example.canvas.ui.DrawingView
+        android:id="@+id/drawingView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 2. Memory X-Ray HUD (Cyberpunk Glassmorphic Overlay, Visible by default) -->
+    <com.example.canvas.ui.XRayView
+        android:id="@+id/xRayView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#131926"
-        android:elevation="4dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="56dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:elevation="14dp"
+        android:visibility="visible" />
+
+    <!-- 3. Top Floating Header Island (Glass Capsule with Mode & Primary Controls) -->
+    <HorizontalScrollView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:background="@drawable/bg_floating_header"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:elevation="16dp"
         android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingTop="6dp"
-            android:paddingBottom="4dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <!-- Mode Switcher Pill (Tap to cycle NAIVE -> DIRTY_RECT -> TIERED) -->
+            <!-- Mode Switcher Capsule (Tap to cycle TIERED -> NAIVE -> DIRTY_RECT) -->
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/tvMode"
                 android:layout_width="wrap_content"
                 android:layout_height="34dp"
                 android:text="TIERED ▾"
                 android:textStyle="bold"
-                android:textColor="#00E676"
+                android:textColor="#10B981"
                 android:textSize="12sp"
                 android:gravity="center"
                 android:paddingStart="12dp"
@@ -41,6 +62,14 @@
                 android:focusable="true"
                 android:layout_marginEnd="6dp" />
 
+            <!-- Vertical Hairline Divider -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="20dp"
+                android:background="#26344A"
+                android:layout_marginEnd="6dp" />
+
+            <!-- Core Action Pills -->
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnUndo"
                 android:layout_width="wrap_content"
@@ -51,8 +80,8 @@
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
                 android:background="@drawable/bg_toolbar_pill"
                 android:clickable="true"
                 android:focusable="true"
@@ -68,8 +97,8 @@
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
                 android:background="@drawable/bg_toolbar_pill"
                 android:clickable="true"
                 android:focusable="true"
@@ -85,9 +114,35 @@
                 android:textAllCaps="false"
                 android:textColor="#F87171"
                 android:textSize="12sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
                 android:background="@drawable/bg_toolbar_pill"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="6dp" />
+
+            <!-- Vertical Hairline Divider -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="20dp"
+                android:background="#26344A"
+                android:layout_marginEnd="6dp" />
+
+            <!-- HUD & Diagnostic Utility Pills -->
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnToggleXRay"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="📡 HUD X-Ray"
+                android:textAllCaps="false"
+                android:textColor="#38BDF8"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
+                android:background="@drawable/bg_toolbar_pill_accent"
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginEnd="5dp" />
@@ -102,13 +157,282 @@
                 android:textAllCaps="false"
                 android:textColor="#FB7185"
                 android:textSize="12sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
                 android:background="@drawable/bg_toolbar_pill"
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginEnd="5dp" />
 
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnDemo3Min"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="▶ Demo 3P"
+                android:textAllCaps="false"
+                android:textColor="#FBBF24"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
+                android:background="@drawable/bg_toolbar_pill"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="5dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnBenchmark"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="📊 Bench"
+                android:textAllCaps="false"
+                android:textColor="#34D399"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
+                android:background="@drawable/bg_toolbar_pill"
+                android:clickable="true"
+                android:focusable="true" />
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- 4. Demo Narration Banner (Overlay when 3-min automated demo runs) -->
+    <LinearLayout
+        android:id="@+id/demoBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="78dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/bg_floating_dock"
+        android:padding="12dp"
+        android:orientation="vertical"
+        android:elevation="14dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvDemoPhase"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="PHASE 1: NAIVE (0:00 / 3:00)"
+                android:textColor="#FBBF24"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnStopDemo"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="Stop Demo"
+                android:textAllCaps="false"
+                android:textColor="#F87171"
+                android:textSize="11sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:background="@drawable/bg_toolbar_pill" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/pbDemoProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="180"
+            android:progress="0"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/tvDemoInstruction"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Observing memory dynamics..."
+            android:textColor="#E2E8F0"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+    <!-- 5. Minimal Monospace Quick Stats Pill (Floating above the dock) -->
+    <TextView
+        android:id="@+id/tvStats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="64dp"
+        android:background="@drawable/bg_toolbar_pill"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:text="Steps: 0 | Hot: 0.0 MB | Warm: 0.0 MB | Cold: 0.0 MB"
+        android:textColor="#94A3B8"
+        android:textSize="10.5sp"
+        android:fontFamily="monospace"
+        android:elevation="8dp" />
+
+    <!-- 6. Bottom Floating Studio Dock (The Artist Island: Brushes, Colors, Fill) -->
+    <HorizontalScrollView
+        android:id="@+id/floatingDock"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="12dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:background="@drawable/bg_floating_dock"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:elevation="16dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Brush Size Selectors -->
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnBrushSmall"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="S"
+                android:textColor="#CBD5E1"
+                android:textSize="12sp"
+                android:background="@drawable/bg_brush_button_normal"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="4dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnBrushMedium"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="M"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_brush_button_selected"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="4dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnBrushLarge"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="L"
+                android:textColor="#CBD5E1"
+                android:textSize="12sp"
+                android:background="@drawable/bg_brush_button_normal"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="4dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnBrushXL"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:text="XL"
+                android:textColor="#CBD5E1"
+                android:textSize="11sp"
+                android:background="@drawable/bg_brush_button_normal"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="8dp" />
+
+            <!-- Vertical Hairline Divider -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="22dp"
+                android:background="#26344A"
+                android:layout_marginEnd="8dp" />
+
+            <!-- Curated Studio Color Palette -->
+            <View
+                android:id="@+id/colorBlack"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#000000"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="6dp" />
+
+            <View
+                android:id="@+id/colorRed"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#EF4444"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="6dp" />
+
+            <View
+                android:id="@+id/colorBlue"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#3B82F6"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="6dp" />
+
+            <View
+                android:id="@+id/colorGreen"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#10B981"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="6dp" />
+
+            <View
+                android:id="@+id/colorWhite"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="@drawable/bg_color_circle"
+                android:backgroundTint="#FFFFFF"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="8dp" />
+
+            <!-- Vertical Hairline Divider -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="22dp"
+                android:background="#26344A"
+                android:layout_marginEnd="8dp" />
+
+            <!-- Quick Fill Action Pill -->
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnFill"
                 android:layout_width="wrap_content"
@@ -119,321 +443,13 @@
                 android:textAllCaps="false"
                 android:textColor="#FBBF24"
                 android:textSize="12sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:paddingStart="11dp"
+                android:paddingEnd="11dp"
                 android:background="@drawable/bg_toolbar_pill"
                 android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="4dp" />
+                android:focusable="true" />
 
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- Top Action Bar: Row 2 (Diagnostics, Scenarios, Brushes & Colors) -->
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#131926"
-        android:elevation="4dp"
-        android:scrollbars="none">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingTop="2dp"
-            android:paddingBottom="6dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnToggleXRay"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="📡 HUD X-Ray"
-                android:textAllCaps="false"
-                android:textColor="#38BDF8"
-                android:textSize="11.5sp"
-                android:textStyle="bold"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:background="@drawable/bg_toolbar_pill_accent"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="5dp" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnDemo3Min"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="▶ Demo 3P"
-                android:textAllCaps="false"
-                android:textColor="#FBBF24"
-                android:textSize="11.5sp"
-                android:textStyle="bold"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:background="@drawable/bg_toolbar_pill_accent"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="5dp" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnBenchmark"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="📊 Bench"
-                android:textAllCaps="false"
-                android:textColor="#34D399"
-                android:textSize="11.5sp"
-                android:textStyle="bold"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:background="@drawable/bg_toolbar_pill_accent"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="8dp" />
-
-            <!-- Vertical Separator -->
-            <View
-                android:layout_width="1dp"
-                android:layout_height="20dp"
-                android:background="#2E384D"
-                android:layout_marginEnd="8dp" />
-
-            <!-- Brush Size Selectors -->
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnBrushSmall"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="S"
-                android:textColor="#E2E8F0"
-                android:textSize="11.5sp"
-                android:background="@drawable/bg_brush_button_normal"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="4dp" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnBrushMedium"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="M"
-                android:textColor="#FFFFFF"
-                android:textSize="11.5sp"
-                android:textStyle="bold"
-                android:background="@drawable/bg_brush_button_selected"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="4dp" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnBrushLarge"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="L"
-                android:textColor="#E2E8F0"
-                android:textSize="11.5sp"
-                android:background="@drawable/bg_brush_button_normal"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="4dp" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnBrushXL"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:text="XL"
-                android:textColor="#E2E8F0"
-                android:textSize="10.5sp"
-                android:background="@drawable/bg_brush_button_normal"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="8dp" />
-
-            <!-- Vertical Separator -->
-            <View
-                android:layout_width="1dp"
-                android:layout_height="20dp"
-                android:background="#2E384D"
-                android:layout_marginEnd="8dp" />
-
-            <!-- Quick Color Palette -->
-            <View
-                android:id="@+id/colorBlack"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:background="@drawable/bg_color_circle"
-                android:backgroundTint="#000000"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="6dp" />
-
-            <View
-                android:id="@+id/colorRed"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:background="@drawable/bg_color_circle"
-                android:backgroundTint="#EF4444"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="6dp" />
-
-            <View
-                android:id="@+id/colorBlue"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:background="@drawable/bg_color_circle"
-                android:backgroundTint="#3B82F6"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="6dp" />
-
-            <View
-                android:id="@+id/colorGreen"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:background="@drawable/bg_color_circle"
-                android:backgroundTint="#10B981"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="6dp" />
-
-            <View
-                android:id="@+id/colorWhite"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:background="@drawable/bg_color_circle"
-                android:backgroundTint="#FFFFFF"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="4dp" />
-
-        </LinearLayout>
-    </HorizontalScrollView>
-
-    <!-- Canvas Container with Interactive HUD and Floating Tools -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <!-- Drawing Canvas -->
-        <com.example.canvas.ui.DrawingView
-            android:id="@+id/drawingView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <!-- Memory X-Ray HUD (VISIBLE BY DEFAULT: Displays Hot/Warm/Cold, RAM oscilloscope, GC counters) -->
-        <com.example.canvas.ui.XRayView
-            android:id="@+id/xRayView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_margin="8dp"
-            android:visibility="visible" />
-
-        <!-- Demo Narration Banner (Overlay when 3-min automated demo runs) -->
-        <LinearLayout
-            android:id="@+id/demoBanner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:layout_margin="12dp"
-            android:background="@drawable/bg_floating_dock"
-            android:padding="12dp"
-            android:orientation="vertical"
-            android:elevation="12dp"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/tvDemoPhase"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="PHASE 1: NAIVE (0:00 / 3:00)"
-                    android:textColor="#FBBF24"
-                    android:textStyle="bold"
-                    android:textSize="13sp" />
-
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/btnStopDemo"
-                    android:layout_width="wrap_content"
-                    android:layout_height="32dp"
-                    android:minWidth="0dp"
-                    android:minHeight="0dp"
-                    android:text="Stop Demo"
-                    android:textAllCaps="false"
-                    android:textColor="#F87171"
-                    android:textSize="11sp"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
-                    android:background="@drawable/bg_toolbar_pill" />
-            </LinearLayout>
-
-            <ProgressBar
-                android:id="@+id/pbDemoProgress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:max="180"
-                android:progress="0"
-                android:layout_marginTop="6dp"
-                android:layout_marginBottom="6dp" />
-
-            <TextView
-                android:id="@+id/tvDemoInstruction"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Observing memory dynamics..."
-                android:textColor="#E2E8F0"
-                android:textSize="12sp" />
-
-        </LinearLayout>
-
-    </FrameLayout>
-
-    <!-- Compact Monospace Status Bar at Bottom -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="26dp"
-        android:background="#11151F"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/tvStats"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Steps: 0 | Hot: 0.0 MB | Warm: 0.0 MB | Cold: 0.0 MB"
-            android:textColor="#94A3B8"
-            android:textSize="11sp"
-            android:fontFamily="monospace" />
-
-    </LinearLayout>
-
-</LinearLayout>
+</FrameLayout>
