@@ -1,6 +1,182 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/mainRoot"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mainLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212" />
+    android:orientation="vertical"
+    android:background="#121212">
+
+    <!-- Top Action Bar / Controls -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1E1E1E"
+        android:padding="6dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="NAIVE"
+                android:textStyle="bold"
+                android:textColor="#FF9800"
+                android:paddingStart="8dp"
+                android:paddingEnd="12dp"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnUndo"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Undo"
+                android:textAllCaps="false"
+                android:layout_marginEnd="6dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <Button
+                android:id="@+id/btnRedo"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Redo"
+                android:textAllCaps="false"
+                android:layout_marginEnd="6dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <Button
+                android:id="@+id/btnClear"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Clear"
+                android:textAllCaps="false"
+                android:layout_marginEnd="6dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <Button
+                android:id="@+id/btnFill"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Fill (16MB)"
+                android:textAllCaps="false"
+                android:layout_marginEnd="12dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="24dp"
+                android:background="#444444"
+                android:layout_marginEnd="12dp" />
+
+            <!-- Brush Size Selector -->
+            <Button
+                android:id="@+id/btnBrushSmall"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="S"
+                android:layout_marginEnd="4dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+            <Button
+                android:id="@+id/btnBrushMedium"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="M"
+                android:layout_marginEnd="4dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+            <Button
+                android:id="@+id/btnBrushLarge"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="L"
+                android:layout_marginEnd="4dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+            <Button
+                android:id="@+id/btnBrushXL"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:text="XL"
+                android:layout_marginEnd="12dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="24dp"
+                android:background="#444444"
+                android:layout_marginEnd="12dp" />
+
+            <!-- Quick Color Palette -->
+            <View
+                android:id="@+id/colorBlack"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="#000000"
+                android:layout_marginEnd="8dp" />
+
+            <View
+                android:id="@+id/colorRed"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="#E53935"
+                android:layout_marginEnd="8dp" />
+
+            <View
+                android:id="@+id/colorBlue"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="#1E88E5"
+                android:layout_marginEnd="8dp" />
+
+            <View
+                android:id="@+id/colorGreen"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="#43A047"
+                android:layout_marginEnd="8dp" />
+
+            <View
+                android:id="@+id/colorWhite"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="#FFFFFF"
+                android:layout_marginEnd="8dp" />
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Canvas Container -->
+    <com.example.canvas.ui.DrawingView
+        android:id="@+id/drawingView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Status Bar (Steps & Hot Memory) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1E1E1E"
+        android:padding="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvStats"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Steps: 0 | Hot: 0 MiB"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp"
+            android:paddingStart="8dp" />
+
+    </LinearLayout>
+
+</LinearLayout>
