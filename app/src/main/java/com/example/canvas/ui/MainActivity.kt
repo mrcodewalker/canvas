@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.canvas.R
 import com.example.canvas.history.NaiveHistory
 import com.example.canvas.history.DirtyRectHistory
+import com.example.canvas.history.TieredHistory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -27,19 +28,19 @@ class MainActivity : AppCompatActivity() {
         tvMode = findViewById(R.id.tvMode)
         tvStats = findViewById(R.id.tvStats)
 
-        // Default to DIRTY_RECT or NAIVE
-        drawingView.historyManager = DirtyRectHistory()
+        // Default to TIERED (main theme of the project)
+        drawingView.historyManager = TieredHistory.create(this)
         tvMode.text = drawingView.historyManager.mode.name
 
-        // Click to toggle mode
+        // Click to cycle modes
         tvMode.setOnClickListener {
-            val newMode = if (drawingView.historyManager.mode == com.example.canvas.history.HistoryMode.NAIVE) {
-                com.example.canvas.history.DirtyRectHistory()
-            } else {
-                com.example.canvas.history.NaiveHistory()
+            val nextManager: com.example.canvas.history.HistoryManager = when (drawingView.historyManager.mode) {
+                com.example.canvas.history.HistoryMode.NAIVE -> com.example.canvas.history.DirtyRectHistory()
+                com.example.canvas.history.HistoryMode.DIRTY_RECT -> com.example.canvas.history.TieredHistory.create(this)
+                com.example.canvas.history.HistoryMode.TIERED -> com.example.canvas.history.NaiveHistory()
             }
-            drawingView.historyManager = newMode
-            tvMode.text = newMode.mode.name
+            drawingView.historyManager = nextManager
+            tvMode.text = nextManager.mode.name
             updateStats()
         }
 
@@ -115,10 +116,16 @@ class MainActivity : AppCompatActivity() {
     private fun updateStats() {
         val stats = drawingView.historyManager.stats()
         val hotMiB = stats.hotBytes / (1024.0 * 1024.0)
-        tvStats.text = "Steps: %d (Redo: %d) | Hot: %.1f MiB".format(
+        val warmMiB = stats.warmBytes / (1024.0 * 1024.0)
+        val coldMiB = stats.coldBytes / (1024.0 * 1024.0)
+        tvStats.text = "Steps: %d (Hot:%d, W:%d, C:%d) | H:%.1fMB | W:%.1fMB | C:%.1fMB".format(
             stats.totalSteps,
-            stats.redoSteps,
-            hotMiB
+            stats.hotSteps,
+            stats.warmSteps,
+            stats.coldSteps,
+            hotMiB,
+            warmMiB,
+            coldMiB
         )
     }
 

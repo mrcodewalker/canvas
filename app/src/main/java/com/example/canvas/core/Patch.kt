@@ -8,24 +8,40 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 
 /**
+ * State machine stages for a patch in Tiered storage:
+ * HOT -> COMPRESSING -> WARM -> WRITING -> COLD.
+ */
+enum class PatchState {
+    HOT,
+    COMPRESSING,
+    WARM,
+    WRITING,
+    COLD
+}
+
+/**
  * Represents a discrete image region patch captured before a canvas modification.
  *
  * @param id Unique monotonic sequence identifier.
  * @param rect Canvas coordinates bounded by this patch.
+ * @param state Current life-cycle state.
  * @param bitmap Raw uncompressed bitmap (Hot representation).
  * @param compressedBytes Deflated lossless byte array (Warm representation).
  * @param filePath Absolute path on filesystem (Cold representation).
  * @param sizeBytes Byte size of current representation.
+ * @param rawLength Uncompressed pixel byte length (width * height * 4).
  * @param crc32 Checksum for integrity verification.
  */
 data class Patch(
     val id: Long,
     val rect: Rect,
-    var bitmap: Bitmap? = null,
-    var compressedBytes: ByteArray? = null,
-    var filePath: String? = null,
-    var sizeBytes: Long = 0L,
-    var crc32: Long = 0L
+    @Volatile var state: PatchState = PatchState.HOT,
+    @Volatile var bitmap: Bitmap? = null,
+    @Volatile var compressedBytes: ByteArray? = null,
+    @Volatile var filePath: String? = null,
+    @Volatile var sizeBytes: Long = 0L,
+    @Volatile var rawLength: Int = 0,
+    @Volatile var crc32: Long = 0L
 ) {
     companion object {
         private val srcPaint by lazy {

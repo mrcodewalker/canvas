@@ -20,6 +20,7 @@ import com.example.canvas.history.HistoryManager
 import com.example.canvas.history.HistoryMode
 import com.example.canvas.history.NaiveHistory
 import com.example.canvas.history.DirtyRectHistory
+import com.example.canvas.history.TieredHistory
 import com.example.canvas.metrics.CsvExporter
 import com.example.canvas.metrics.MetricsCollector
 import kotlinx.coroutines.Dispatchers
@@ -106,10 +107,7 @@ class BenchmarkActivity : AppCompatActivity() {
         val historyManager: HistoryManager = when (selectedMode) {
             HistoryMode.NAIVE -> NaiveHistory()
             HistoryMode.DIRTY_RECT -> DirtyRectHistory()
-            HistoryMode.TIERED -> {
-                Toast.makeText(this, "Tiered mode will be fully operational in Stage 4. Running DirtyRect fallback.", Toast.LENGTH_SHORT).show()
-                DirtyRectHistory()
-            }
+            HistoryMode.TIERED -> TieredHistory.create(this)
         }
 
         btnRun.isEnabled = false
