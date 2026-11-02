@@ -12,6 +12,10 @@ enum class ScenarioType(val title: String, val description: String) {
         "E2: Draw 300 & Undo All",
         "Draws N strokes then reverts every stroke. Measures peak memory and GC count."
     ),
+    E3_UNDO_BY_TIER(
+        "E3: Undo By Tier",
+        "Populates Hot, Warm, and Cold stores then undos to evaluate p50/p95 latency per tier."
+    ),
     E4_CONTINUOUS_UNDO_PREFETCH(
         "E4: Continuous 100 Undos (Prefetch)",
         "Consecutively undos 100 strokes. Evaluates prefetch hit rate and latency."

@@ -91,6 +91,17 @@ class BenchmarkRunner(
                     )
                 }
 
+                ScenarioType.E3_UNDO_BY_TIER -> {
+                    runUndoByTier(
+                        config = config,
+                        drawer = drawer,
+                        bitmap = backingBitmap,
+                        canvas = backingCanvas,
+                        collector = collector,
+                        onProgress = onProgress
+                    )
+                }
+
                 ScenarioType.E4_CONTINUOUS_UNDO_PREFETCH -> {
                     runContinuousUndoPrefetch(
                         config = config,
@@ -200,6 +211,56 @@ class BenchmarkRunner(
             }
             val latency = System.currentTimeMillis() - startMs
             collector.recordStepLatency(latency)
+            onProgress?.invoke(config.stepCount + step, totalSteps)
+            if (!undone) break
+        }
+
+        collector.markSuccess()
+    }
+
+    private suspend fun runUndoByTier(
+        config: BenchmarkConfig,
+        drawer: ScriptedDrawer,
+        bitmap: Bitmap,
+        canvas: Canvas,
+        collector: MetricsCollector,
+        onProgress: ((Int, Int) -> Unit)?
+    ) {
+        val totalSteps = config.stepCount * 2
+        // Phase 1: Draw strokes to populate tiers
+        for (step in 1..config.stepCount) {
+            val stroke = drawer.nextStroke(config.strokeType)
+            val startMs = System.currentTimeMillis()
+            try {
+                commitStroke(bitmap, canvas, stroke)
+            } catch (oom: OutOfMemoryError) {
+                collector.markOom(oom)
+                return
+            }
+            collector.recordStepLatency(System.currentTimeMillis() - startMs)
+            onProgress?.invoke(step, totalSteps)
+        }
+
+        // Phase 2: Undo step by step, measuring latency by tier
+        for (step in 1..config.stepCount) {
+            val statsBefore = historyManager.stats()
+            val tier = when {
+                statsBefore.hotSteps > 0 -> "HOT"
+                statsBefore.warmSteps > 0 -> "WARM"
+                statsBefore.coldSteps > 0 -> "COLD"
+                else -> "UNKNOWN"
+            }
+
+            val startMs = System.currentTimeMillis()
+            val undone = try {
+                historyManager.undo(bitmap)
+            } catch (oom: OutOfMemoryError) {
+                collector.markOom(oom)
+                return
+            }
+            val latency = System.currentTimeMillis() - startMs
+            collector.recordStepLatency(latency)
+            collector.recordTierLatency(tier, latency)
             onProgress?.invoke(config.stepCount + step, totalSteps)
             if (!undone) break
         }

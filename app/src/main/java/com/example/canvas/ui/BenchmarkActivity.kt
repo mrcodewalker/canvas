@@ -173,6 +173,20 @@ class BenchmarkActivity : AppCompatActivity() {
         sb.append(String.format(Locale.US, "Avg Step Latency: %.2f ms\n", collector.averageLatencyMs()))
         sb.append(String.format(Locale.US, "p50 Step Latency: %.2f ms\n", collector.percentileLatencyMs(50.0)))
         sb.append(String.format(Locale.US, "p95 Step Latency: %.2f ms\n", collector.percentileLatencyMs(95.0)))
+        if (collector.getTierLatencies("HOT").isNotEmpty() ||
+            collector.getTierLatencies("WARM").isNotEmpty() ||
+            collector.getTierLatencies("COLD").isNotEmpty()) {
+            sb.append("------------------------\n")
+            sb.append(String.format(Locale.US, "HOT  p50/p95:     %.2f / %.2f ms\n",
+                collector.percentileTierLatencyMs("HOT", 50.0),
+                collector.percentileTierLatencyMs("HOT", 95.0)))
+            sb.append(String.format(Locale.US, "WARM p50/p95:     %.2f / %.2f ms\n",
+                collector.percentileTierLatencyMs("WARM", 50.0),
+                collector.percentileTierLatencyMs("WARM", 95.0)))
+            sb.append(String.format(Locale.US, "COLD p50/p95:     %.2f / %.2f ms\n",
+                collector.percentileTierLatencyMs("COLD", 50.0),
+                collector.percentileTierLatencyMs("COLD", 95.0)))
+        }
 
         tvResults.text = sb.toString()
     }

@@ -18,6 +18,7 @@ class MetricsCollector {
 
     private val samples = CopyOnWriteArrayList<MemorySnapshot>()
     private val stepLatenciesMs = CopyOnWriteArrayList<Long>()
+    private val tierLatencies = java.util.concurrent.ConcurrentHashMap<String, CopyOnWriteArrayList<Long>>()
 
     var status: BenchmarkStatus = BenchmarkStatus.IDLE
         private set
@@ -41,6 +42,7 @@ class MetricsCollector {
     fun start() {
         samples.clear()
         stepLatenciesMs.clear()
+        tierLatencies.clear()
         completedSteps = 0
         errorMessage = null
         status = BenchmarkStatus.RUNNING
@@ -56,6 +58,27 @@ class MetricsCollector {
     fun recordStepLatency(latencyMs: Long) {
         stepLatenciesMs.add(latencyMs)
         completedSteps++
+    }
+
+    fun recordTierLatency(tier: String, latencyMs: Long) {
+        tierLatencies.computeIfAbsent(tier) { CopyOnWriteArrayList() }.add(latencyMs)
+    }
+
+    fun getTierLatencies(tier: String): List<Long> =
+        tierLatencies[tier]?.toList() ?: emptyList()
+
+    fun percentileTierLatencyMs(tier: String, percentile: Double): Double {
+        val list = tierLatencies[tier] ?: return 0.0
+        if (list.isEmpty()) return 0.0
+        val sorted = list.sorted()
+        val index = ((percentile / 100.0) * (sorted.size - 1)).toInt()
+        return sorted[index.coerceIn(0, sorted.size - 1)].toDouble()
+    }
+
+    fun averageTierLatencyMs(tier: String): Double {
+        val list = tierLatencies[tier] ?: return 0.0
+        if (list.isEmpty()) return 0.0
+        return list.average()
     }
 
     fun markSuccess() {
