@@ -31,7 +31,15 @@ class TieredHistory(
 ) : HistoryManager {
 
     companion object {
-        fun create(context: Context, tierConfig: TierConfig = TierConfig()): TieredHistory {
+        fun create(
+            context: Context,
+            tierConfig: TierConfig = TierConfig(
+                infiniteUndo = true,
+                coldMaxSteps = Int.MAX_VALUE,
+                coldMaxBytes = 4L * 1024 * 1024 * 1024, // 4 GiB disk ceiling for Infinite Undo
+                evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE
+            )
+        ): TieredHistory {
             val dir = File(context.filesDir, "history")
             return TieredHistory(historyDir = dir, tierConfig = tierConfig)
         }
@@ -50,11 +58,20 @@ class TieredHistory(
     val hotStore = HotStore()
     val warmStore = WarmStore()
     val coldStore = ColdStore(historyDir)
-    val tierPolicy = TierPolicy(tierConfig, hotStore, warmStore, coldStore)
+    val tierPolicy = TierPolicy(
+        config = tierConfig,
+        hotStore = hotStore,
+        warmStore = warmStore,
+        coldStore = coldStore,
+        onColdEvicted = { evictedPatch ->
+            undoHistory.remove(evictedPatch)
+        }
+    )
     val prefetcher = Prefetcher(coldStore, warmStore, k = 5)
 
     private val undoHistory = ArrayDeque<Patch>()
     private val redoStack = ArrayDeque<Patch>()
+    private var totalRawEquivalentBytes: Long = 0L
 
     override suspend fun commit(before: Patch): Unit = withContext(historyDispatcher) {
         before.state = PatchState.HOT
@@ -62,6 +79,8 @@ class TieredHistory(
             before.sizeBytes = before.bitmap!!.allocationByteCount.toLong()
             before.rawLength = before.bitmap!!.byteCount
         }
+        val rawLen = if (before.rawLength > 0) before.rawLength.toLong() else before.sizeBytes
+        totalRawEquivalentBytes += rawLen
 
         hotStore.add(before)
         undoHistory.addLast(before)
@@ -77,6 +96,8 @@ class TieredHistory(
         if (undoHistory.isEmpty()) return@withContext false
 
         val patchToRestore = undoHistory.removeLast()
+        val rawLen = if (patchToRestore.rawLength > 0) patchToRestore.rawLength.toLong() else patchToRestore.sizeBytes
+        totalRawEquivalentBytes = (totalRawEquivalentBytes - rawLen).coerceAtLeast(0L)
         val rect = patchToRestore.rect
         val patchW = (rect.right - rect.left).coerceAtLeast(1)
         val patchH = (rect.bottom - rect.top).coerceAtLeast(1)
@@ -143,6 +164,7 @@ class TieredHistory(
         )
         hotStore.add(undoPatch)
         undoHistory.addLast(undoPatch)
+        totalRawEquivalentBytes += undoPatch.rawLength.toLong()
 
         // Apply redo patch
         val bmp = patchToRestore.bitmap
@@ -188,6 +210,18 @@ class TieredHistory(
         }
     }
 
+    suspend fun runOomCleaner(): Long = withContext(historyDispatcher) {
+        tierPolicy.runOomCleaner()
+    }
+
+    fun updateTierConfig(newConfig: TierConfig) {
+        tierConfig = newConfig
+        tierPolicy.config = newConfig
+        scope.launch {
+            tierPolicy.enforceBudgets()
+        }
+    }
+
     override fun stats(): HistoryStats {
         return HistoryStats(
             hotBytes = hotStore.totalBytes,
@@ -199,7 +233,12 @@ class TieredHistory(
             totalSteps = undoHistory.size,
             redoSteps = redoStack.size,
             prefetchHits = prefetcher.hits.get(),
-            prefetchMisses = prefetcher.misses.get()
+            prefetchMisses = prefetcher.misses.get(),
+            rawEquivalentBytes = totalRawEquivalentBytes,
+            oomCleanerReclaimedBytes = tierPolicy.oomCleanerReclaimedBytes,
+            deduplicatedPatches = tierPolicy.deduplicatedPatches,
+            infiniteUndoEnabled = tierConfig.infiniteUndo,
+            evictionStrategy = tierConfig.evictionStrategy.name
         )
     }
 
@@ -209,6 +248,8 @@ class TieredHistory(
             warmStore.clear()
             coldStore.clear()
             undoHistory.clear()
+            totalRawEquivalentBytes = 0L
+            tierPolicy.resetSwamMetrics()
             clearRedoStackLocked()
             prefetcher.resetStats()
         }

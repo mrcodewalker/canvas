@@ -208,4 +208,58 @@ class TieredStoreTest {
         assertEquals(0L, coldStore.totalBytes)
         assertFalse("Cold file should be deleted on clear", file.exists())
     }
+
+    @Test
+    fun testInfiniteUndoAndSwamOomCleanerAndCostAwareEviction() = runTest {
+        val historyDir = tempFolder.newFolder("history_swam_infinite")
+        val hotStore = HotStore()
+        val warmStore = WarmStore()
+        val coldStore = ColdStore(historyDir)
+
+        val config = TierConfig(
+            hotBudgetBytes = 2_000L,
+            warmBudgetBytes = 2_000L,
+            coldMaxBytes = 10_000L,
+            coldMaxSteps = 10, // Small cap, but infiniteUndo = true bypasses it!
+            infiniteUndo = true,
+            evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE
+        )
+        val policy = TierPolicy(config, hotStore, warmStore, coldStore)
+
+        val rawRepeated = ByteArray(400) { 7 }
+        val compRepeated = PatchCodec.compress(rawRepeated)
+
+        // Commit 35 steps (exceeds coldMaxSteps=10, verifying Infinite Undo keeps all 35!)
+        for (i in 1..35) {
+            val rect = Rect()
+            rect.left = 0
+            rect.top = 0
+            rect.right = 10
+            rect.bottom = 10
+            val p = Patch(
+                id = i.toLong(),
+                rect = rect,
+                state = PatchState.HOT,
+                sizeBytes = if (i % 2 == 0) 900L else 450L,
+                compressedBytes = compRepeated.compressedBytes.clone(),
+                rawLength = rawRepeated.size,
+                crc32 = compRepeated.crc32
+            )
+            hotStore.add(p)
+            policy.enforceBudgets()
+        }
+
+        // Verify O(1) bounded RAM
+        assertTrue(hotStore.totalBytes <= 2_000L)
+        assertTrue(warmStore.totalBytes <= 2_000L)
+
+        // Verify all 35 steps are preserved across Hot + Warm + Cold (Infinite Undo)
+        val totalPreserved = hotStore.count + warmStore.count + coldStore.count
+        assertEquals(35, totalPreserved)
+
+        // Run SWAM OOM Cleaner to deduplicate identical CRC32 pages in Warm & Cold
+        val reclaimed = policy.runOomCleaner()
+        assertTrue("SWAM OOM Cleaner should reclaim duplicate swap pages", reclaimed > 0L)
+        assertTrue("Deduplicated patches count should be > 0", policy.deduplicatedPatches > 0)
+    }
 }

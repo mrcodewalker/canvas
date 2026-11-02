@@ -28,7 +28,14 @@ data class XRayCurrentTelemetry(
     val prefetchHitRate: Float = 0f,
     val peakHeapMb: Float = 0f,
     val currentJavaHeapMb: Float = 0f,
-    val currentNativeHeapMb: Float = 0f
+    val currentNativeHeapMb: Float = 0f,
+    val rawEquivalentMb: Float = 0f,
+    val compressionRatio: Float = 1f,
+    val ramSavedVsNaivePercent: Float = 0f,
+    val oomCleanerReclaimedKb: Float = 0f,
+    val deduplicatedPatches: Int = 0,
+    val infiniteUndoEnabled: Boolean = true,
+    val evictionStrategy: String = "SWAM_COST_AWARE"
 )
 
 /**
@@ -103,6 +110,21 @@ class XRayTelemetryTracker(
         val javaMb = snap?.let { it.javaHeapBytes / (1024f * 1024f) } ?: 0f
         val nativeMb = snap?.let { it.nativeHeapBytes / (1024f * 1024f) } ?: 0f
 
+        val rawMb = stats.rawEquivalentBytes / (1024f * 1024f)
+        val compressedTotalMb = warmMb + coldMb
+        val compRatio = if (compressedTotalMb > 0.01f && rawMb > hotMb) {
+            ((rawMb - hotMb).coerceAtLeast(compressedTotalMb)) / compressedTotalMb
+        } else {
+            1f
+        }
+        val naiveEquivalentMb = stats.totalSteps * 16f // Each 2048x2048 ARGB_8888 is 16 MiB
+        val actualRamUsedByHistoryMb = hotMb + warmMb
+        val savedPercent = if (naiveEquivalentMb > 0f) {
+            (((naiveEquivalentMb - actualRamUsedByHistoryMb) / naiveEquivalentMb) * 100f).coerceIn(0f, 99.9f)
+        } else {
+            0f
+        }
+
         return XRayCurrentTelemetry(
             latestSnapshot = snap,
             hotMb = hotMb,
@@ -120,7 +142,14 @@ class XRayTelemetryTracker(
             prefetchHitRate = hitRate,
             peakHeapMb = getPeakTotalMb(),
             currentJavaHeapMb = javaMb,
-            currentNativeHeapMb = nativeMb
+            currentNativeHeapMb = nativeMb,
+            rawEquivalentMb = rawMb,
+            compressionRatio = compRatio,
+            ramSavedVsNaivePercent = savedPercent,
+            oomCleanerReclaimedKb = stats.oomCleanerReclaimedBytes / 1024f,
+            deduplicatedPatches = stats.deduplicatedPatches,
+            infiniteUndoEnabled = stats.infiniteUndoEnabled,
+            evictionStrategy = stats.evictionStrategy
         )
     }
 

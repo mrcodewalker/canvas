@@ -20,7 +20,12 @@ data class HistoryStats(
     val redoSteps: Int = 0,
     val gcCount: Long = 0L,
     val prefetchHits: Int = 0,
-    val prefetchMisses: Int = 0
+    val prefetchMisses: Int = 0,
+    val rawEquivalentBytes: Long = 0L,
+    val oomCleanerReclaimedBytes: Long = 0L,
+    val deduplicatedPatches: Int = 0,
+    val infiniteUndoEnabled: Boolean = true,
+    val evictionStrategy: String = "FIFO"
 )
 
 interface HistoryManager {

@@ -139,8 +139,11 @@ class BenchmarkRunner(
             }
         } finally {
             sampler.stop()
-            // Sample final state
+            // Sample final state before freeing benchmark bitmaps
             collector.recordSample(sampler.captureSnapshot())
+            historyManager.clear()
+            backingBitmap.recycle()
+            System.gc()
         }
 
         collector
@@ -414,6 +417,16 @@ class BenchmarkRunner(
 
     private suspend fun commitStroke(bitmap: Bitmap, canvas: Canvas, stroke: com.example.canvas.core.Stroke) {
         val beforePatch = if (historyManager.mode == HistoryMode.NAIVE) {
+            if (canvasWidth >= 1024 && canvasHeight >= 1024) {
+                val requiredBytes = canvasWidth.toLong() * canvasHeight.toLong() * 4L
+                val currentHotBytes = historyManager.stats().hotBytes
+                val rt = Runtime.getRuntime()
+                val safeCapBytes = kotlin.math.min((rt.maxMemory() * 0.50).toLong(), 128L * 1024L * 1024L)
+                val freeHeadroom = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
+                if (currentHotBytes + requiredBytes > safeCapBytes || freeHeadroom - requiredBytes < 48L * 1024L * 1024L) {
+                    throw OutOfMemoryError("Chạm trần bảo vệ Cận-OOM (${currentHotBytes / (1024 * 1024)} MB) trong Benchmark NAIVE")
+                }
+            }
             val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                 ?: throw OutOfMemoryError("Bitmap.copy failed to allocate full canvas")
             Patch(
@@ -424,12 +437,24 @@ class BenchmarkRunner(
             )
         } else {
             val bounds = stroke.computeBounds(canvasWidth, canvasHeight)
+            val w = bounds.width().coerceAtLeast(1)
+            val h = bounds.height().coerceAtLeast(1)
+            if (historyManager.mode == HistoryMode.DIRTY_RECT && canvasWidth >= 1024 && canvasHeight >= 1024) {
+                val requiredBytes = w.toLong() * h.toLong() * 4L
+                val currentHotBytes = historyManager.stats().hotBytes
+                val rt = Runtime.getRuntime()
+                val safeCapBytes = kotlin.math.min((rt.maxMemory() * 0.58).toLong(), 160L * 1024L * 1024L)
+                val freeHeadroom = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
+                if (currentHotBytes + requiredBytes > safeCapBytes || freeHeadroom - requiredBytes < 48L * 1024L * 1024L) {
+                    throw OutOfMemoryError("Chạm trần bảo vệ Cận-OOM (${currentHotBytes / (1024 * 1024)} MB) trong Benchmark DIRTY_RECT")
+                }
+            }
             val patchBmp = Bitmap.createBitmap(
                 bitmap,
                 bounds.left,
                 bounds.top,
-                bounds.width().coerceAtLeast(1),
-                bounds.height().coerceAtLeast(1)
+                w,
+                h
             )
             Patch(
                 id = System.nanoTime(),

@@ -67,13 +67,35 @@ class ColdStore(
 
     fun deleteColdFile(patch: Patch) {
         val path = patch.filePath ?: return
-        try {
-            val file = File(path)
-            if (file.exists()) {
-                file.delete()
-            }
-        } catch (_: Throwable) {}
         patch.filePath = null
+        // SWAM OOM Cleaner safety: only delete the physical file if no other patch shares it
+        val stillReferenced = queue.any { it !== patch && it.filePath == path }
+        if (!stillReferenced) {
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    file.delete()
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun getAll(): List<Patch> = queue.toList()
+
+    fun recalculateTotalBytes() {
+        val uniquePaths = HashSet<String>()
+        var sum = 0L
+        for (p in queue) {
+            val path = p.filePath
+            if (path != null) {
+                if (uniquePaths.add(path)) {
+                    sum += p.sizeBytes
+                }
+            } else {
+                sum += p.sizeBytes
+            }
+        }
+        totalBytes = sum
     }
 
     fun clear() {

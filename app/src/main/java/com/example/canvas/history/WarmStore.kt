@@ -37,6 +37,22 @@ class WarmStore {
 
     fun getAll(): List<Patch> = queue.toList()
 
+    fun recalculateTotalBytes() {
+        val seenArrays = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<ByteArray, Boolean>())
+        var sum = 0L
+        for (p in queue) {
+            val arr = p.compressedBytes
+            if (arr != null) {
+                if (seenArrays.add(arr)) {
+                    sum += p.sizeBytes
+                }
+            } else {
+                sum += p.sizeBytes
+            }
+        }
+        totalBytes = sum
+    }
+
     fun clear() {
         for (patch in queue) {
             patch.compressedBytes = null
