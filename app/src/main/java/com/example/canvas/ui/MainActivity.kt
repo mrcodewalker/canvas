@@ -67,6 +67,13 @@ class MainActivity : AppCompatActivity() {
             updateStats()
         }
 
+        findViewById<Button>(R.id.btnStress).setOnClickListener {
+            @Suppress("DEPRECATION")
+            drawingView.historyManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+            android.widget.Toast.makeText(this, "Memory Stress: Demoted Hot to Warm/Cold", android.widget.Toast.LENGTH_SHORT).show()
+            updateStats()
+        }
+
         findViewById<Button>(R.id.btnBenchmark).setOnClickListener {
             val intent = android.content.Intent(this, BenchmarkActivity::class.java)
             startActivity(intent)

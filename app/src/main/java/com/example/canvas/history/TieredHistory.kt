@@ -51,6 +51,7 @@ class TieredHistory(
     val warmStore = WarmStore()
     val coldStore = ColdStore(historyDir)
     val tierPolicy = TierPolicy(tierConfig, hotStore, warmStore, coldStore)
+    val prefetcher = Prefetcher(coldStore, warmStore, k = 5)
 
     private val undoHistory = ArrayDeque<Patch>()
     private val redoStack = ArrayDeque<Patch>()
@@ -80,6 +81,13 @@ class TieredHistory(
         val patchW = (rect.right - rect.left).coerceAtLeast(1)
         val patchH = (rect.bottom - rect.top).coerceAtLeast(1)
 
+        // Track prefetch hit/miss for telemetry
+        if (patchToRestore.state == PatchState.COLD) {
+            prefetcher.recordMiss()
+        } else if (patchToRestore.state == PatchState.WARM) {
+            prefetcher.recordHit()
+        }
+
         // 1. Capture current canvas region for redo (retained in Hot)
         val redoBitmap = Bitmap.createBitmap(canvas, rect.left, rect.top, patchW, patchH)
         val redoPatch = Patch(
@@ -108,6 +116,9 @@ class TieredHistory(
         val nativeCanvas = Canvas(canvas)
         nativeCanvas.drawBitmap(bitmapToApply, rect.left.toFloat(), rect.top.toFloat(), srcPaint)
         bitmapToApply.recycle()
+
+        // 4. Prefetch next K=5 older patches from Cold to Warm
+        prefetcher.prefetchNextK(undoHistory.toList(), scope)
 
         return@withContext true
     }
@@ -186,7 +197,9 @@ class TieredHistory(
             warmSteps = warmStore.count,
             coldSteps = coldStore.count,
             totalSteps = undoHistory.size,
-            redoSteps = redoStack.size
+            redoSteps = redoStack.size,
+            prefetchHits = prefetcher.hits.get(),
+            prefetchMisses = prefetcher.misses.get()
         )
     }
 
@@ -197,6 +210,7 @@ class TieredHistory(
             coldStore.clear()
             undoHistory.clear()
             clearRedoStackLocked()
+            prefetcher.resetStats()
         }
     }
 

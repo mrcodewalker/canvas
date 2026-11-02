@@ -68,6 +68,16 @@
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
             <Button
+                android:id="@+id/btnStress"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Stress"
+                android:textAllCaps="false"
+                android:textColor="#FF5252"
+                android:layout_marginEnd="6dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+            <Button
                 android:id="@+id/btnBenchmark"
                 android:layout_width="wrap_content"
                 android:layout_height="40dp"

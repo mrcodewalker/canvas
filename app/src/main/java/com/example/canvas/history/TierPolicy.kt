@@ -117,12 +117,14 @@ class TierPolicy(
 
     /**
      * Handles Android onTrimMemory events according to Section 5.4:
-     * - Mild: Hot shrunk to 50%
-     * - Moderate: Hot shrunk to 25%
-     * - Complete: Evict all Hot to Warm, shrink Warm to 50%
+     * - Mild (UI_HIDDEN, BACKGROUND, RUNNING_MODERATE): Hot shrunk to 50%
+     * - Moderate (MODERATE, RUNNING_LOW): Hot shrunk to 25%
+     * - Complete (COMPLETE, RUNNING_CRITICAL): Evict all Hot to Warm, shrink Warm to 50%
      */
+    @Suppress("DEPRECATION")
     suspend fun applyTrimMemory(level: Int) {
         when {
+            // Level 80 (COMPLETE) or Level 15 (RUNNING_CRITICAL)
             level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
                 // Severe: Push all Hot down to Warm, reduce Warm to 50%
                 enforceBudgets(
@@ -130,6 +132,7 @@ class TierPolicy(
                     effectiveWarmBudget = (config.warmBudgetBytes * 0.5).toLong()
                 )
             }
+            // Level 60 (MODERATE) or Level 10 (RUNNING_LOW)
             level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
                 // Moderate: Reduce Hot to 25%
                 enforceBudgets(
@@ -137,6 +140,7 @@ class TierPolicy(
                     effectiveWarmBudget = config.warmBudgetBytes
                 )
             }
+            // Level 20 (UI_HIDDEN), Level 40 (BACKGROUND), or Level 5 (RUNNING_MODERATE)
             level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
                 // Mild: Reduce Hot to 50%
                 enforceBudgets(

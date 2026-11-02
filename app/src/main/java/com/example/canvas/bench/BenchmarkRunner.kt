@@ -91,6 +91,29 @@ class BenchmarkRunner(
                     )
                 }
 
+                ScenarioType.E4_CONTINUOUS_UNDO_PREFETCH -> {
+                    runContinuousUndoPrefetch(
+                        config = config,
+                        drawer = drawer,
+                        bitmap = backingBitmap,
+                        canvas = backingCanvas,
+                        collector = collector,
+                        onProgress = onProgress
+                    )
+                }
+
+                ScenarioType.E5_STRESS_AND_RECOVER -> {
+                    runStressAndRecover(
+                        config = config,
+                        drawer = drawer,
+                        bitmap = backingBitmap,
+                        canvas = backingCanvas,
+                        collector = collector,
+                        initialHash = initialHash,
+                        onProgress = onProgress
+                    )
+                }
+
                 ScenarioType.E6_CORRECTNESS_HASH -> {
                     runCorrectnessHash(
                         config = config,
@@ -222,6 +245,108 @@ class BenchmarkRunner(
         } else {
             collector.markFailed(
                 IllegalStateException("Pixel hash mismatch! Expected CRC $initialHash but got $restoredHash")
+            )
+        }
+    }
+
+    private suspend fun runContinuousUndoPrefetch(
+        config: BenchmarkConfig,
+        drawer: ScriptedDrawer,
+        bitmap: Bitmap,
+        canvas: Canvas,
+        collector: MetricsCollector,
+        onProgress: ((Int, Int) -> Unit)?
+    ) {
+        val totalSteps = config.stepCount * 2
+        // Draw steps
+        for (step in 1..config.stepCount) {
+            val stroke = drawer.nextStroke(config.strokeType)
+            val startMs = System.currentTimeMillis()
+            try {
+                commitStroke(bitmap, canvas, stroke)
+            } catch (oom: OutOfMemoryError) {
+                collector.markOom(oom)
+                return
+            }
+            collector.recordStepLatency(System.currentTimeMillis() - startMs)
+            onProgress?.invoke(step, totalSteps)
+        }
+
+        // Continuous undos (evaluating prefetch latency and hit rate)
+        for (step in 1..config.stepCount) {
+            val startMs = System.currentTimeMillis()
+            val undone = historyManager.undo(bitmap)
+            val latency = System.currentTimeMillis() - startMs
+            collector.recordStepLatency(latency)
+            onProgress?.invoke(config.stepCount + step, totalSteps)
+            if (!undone) break
+        }
+
+        collector.markSuccess()
+    }
+
+    private suspend fun runStressAndRecover(
+        config: BenchmarkConfig,
+        drawer: ScriptedDrawer,
+        bitmap: Bitmap,
+        canvas: Canvas,
+        collector: MetricsCollector,
+        initialHash: Long,
+        onProgress: ((Int, Int) -> Unit)?
+    ) {
+        val phase1Steps = (config.stepCount * 0.75).toInt().coerceAtLeast(1)
+        val phase2Steps = (config.stepCount * 0.25).toInt().coerceAtLeast(1)
+        val totalDrawSteps = phase1Steps + phase2Steps
+        val totalOverallSteps = totalDrawSteps * 2
+
+        // Phase 1: Draw until stress point
+        for (step in 1..phase1Steps) {
+            val stroke = drawer.nextStroke(config.strokeType)
+            val startMs = System.currentTimeMillis()
+            try {
+                commitStroke(bitmap, canvas, stroke)
+            } catch (oom: OutOfMemoryError) {
+                collector.markOom(oom)
+                return
+            }
+            collector.recordStepLatency(System.currentTimeMillis() - startMs)
+            onProgress?.invoke(step, totalOverallSteps)
+        }
+
+        // Trigger memory stress (ComponentCallbacks2.TRIM_MEMORY_COMPLETE = 80)
+        @Suppress("DEPRECATION")
+        historyManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+
+        // Phase 2: Continue drawing after stress
+        for (step in 1..phase2Steps) {
+            val stroke = drawer.nextStroke(config.strokeType)
+            val startMs = System.currentTimeMillis()
+            try {
+                commitStroke(bitmap, canvas, stroke)
+            } catch (oom: OutOfMemoryError) {
+                collector.markOom(oom)
+                return
+            }
+            collector.recordStepLatency(System.currentTimeMillis() - startMs)
+            onProgress?.invoke(phase1Steps + step, totalOverallSteps)
+        }
+
+        // Phase 3: Undo all to verify zero data loss and full recovery
+        for (step in 1..totalDrawSteps) {
+            val startMs = System.currentTimeMillis()
+            val undone = historyManager.undo(bitmap)
+            val latency = System.currentTimeMillis() - startMs
+            collector.recordStepLatency(latency)
+            onProgress?.invoke(totalDrawSteps + step, totalOverallSteps)
+            if (!undone) break
+        }
+
+        val restoredHash = computePixelCrc32(bitmap)
+        if (restoredHash == initialHash) {
+            collector.markSuccess()
+        } else {
+            collector.markFailed(
+                IllegalStateException("Pixel hash mismatch after Stress! Expected CRC $initialHash but got $restoredHash")
             )
         }
     }
