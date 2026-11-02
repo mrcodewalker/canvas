@@ -53,6 +53,11 @@ class MainActivity : AppCompatActivity() {
             updateStats()
         }
 
+        findViewById<Button>(R.id.btnBenchmark).setOnClickListener {
+            val intent = android.content.Intent(this, BenchmarkActivity::class.java)
+            startActivity(intent)
+        }
+
         // Brush sizes
         findViewById<Button>(R.id.btnBrushSmall).setOnClickListener {
             drawingView.strokeWidth = 8f
