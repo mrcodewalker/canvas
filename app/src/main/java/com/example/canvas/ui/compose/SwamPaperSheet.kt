@@ -15,8 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,7 +56,6 @@ import com.example.canvas.ui.theme.CoralRose
 import com.example.canvas.ui.theme.CyberSurface
 import com.example.canvas.ui.theme.CyberSurfaceVariant
 import com.example.canvas.ui.theme.EmeraldGreen
-import com.example.canvas.ui.theme.NeonCyan
 import com.example.canvas.ui.theme.RadiantMint
 import com.example.canvas.ui.theme.SkyBlue
 import java.util.Locale
@@ -80,13 +77,22 @@ fun SwamPaperSheet(
 
     val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024f * 1024f)).coerceAtLeast(64f)
     var hotMbSlider by remember(currentConfig.hotBudgetBytes) {
-        mutableFloatStateOf((currentConfig.hotBudgetBytes / (1024f * 1024f)).coerceIn(4f, maxHeapMb * 0.4f))
+        mutableFloatStateOf((currentConfig.hotBudgetBytes / (1024f * 1024f)).coerceIn(1f, maxHeapMb * 0.4f))
     }
     var warmMbSlider by remember(currentConfig.warmBudgetBytes) {
-        mutableFloatStateOf((currentConfig.warmBudgetBytes / (1024f * 1024f)).coerceIn(4f, maxHeapMb * 0.4f))
+        mutableFloatStateOf((currentConfig.warmBudgetBytes / (1024f * 1024f)).coerceIn(0.25f, maxHeapMb * 0.4f))
     }
     var compressionLevel by remember(currentConfig.compressionLevel) {
         mutableIntStateOf(currentConfig.compressionLevel)
+    }
+    var adaptiveCompEnabled by remember(currentConfig.adaptiveCompEnabled) {
+        mutableStateOf(currentConfig.adaptiveCompEnabled)
+    }
+    var coldCompressionLevel by remember(currentConfig.coldCompressionLevel) {
+        mutableIntStateOf(currentConfig.coldCompressionLevel)
+    }
+    var adaptiveCompBlockSize by remember(currentConfig.adaptiveCompBlockSize) {
+        mutableIntStateOf(currentConfig.adaptiveCompBlockSize)
     }
     var infiniteUndo by remember(currentConfig.infiniteUndo) {
         mutableStateOf(currentConfig.infiniteUndo)
@@ -99,6 +105,9 @@ fun SwamPaperSheet(
         newHotMb: Float = hotMbSlider,
         newWarmMb: Float = warmMbSlider,
         newCompLevel: Int = compressionLevel,
+        newAdaptiveComp: Boolean = adaptiveCompEnabled,
+        newColdCompLevel: Int = coldCompressionLevel,
+        newBlockSize: Int = adaptiveCompBlockSize,
         newInfinite: Boolean = infiniteUndo,
         newStrategy: SwamEvictionStrategy = evictionStrategy
     ) {
@@ -107,6 +116,9 @@ fun SwamPaperSheet(
                 hotBudgetBytes = (newHotMb * 1024L * 1024L).toLong(),
                 warmBudgetBytes = (newWarmMb * 1024L * 1024L).toLong(),
                 compressionLevel = newCompLevel,
+                adaptiveCompEnabled = newAdaptiveComp,
+                coldCompressionLevel = newColdCompLevel,
+                adaptiveCompBlockSize = newBlockSize,
                 infiniteUndo = newInfinite,
                 coldMaxSteps = if (newInfinite) Int.MAX_VALUE else 1000,
                 coldMaxBytes = if (newInfinite) 4L * 1024 * 1024 * 1024 else 500L * 1024 * 1024,
@@ -119,7 +131,7 @@ fun SwamPaperSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = CyberSurface,
-        contentColor = Color.White
+        contentColor = Color(0xFFF3F4F6)
     ) {
         Column(
             modifier = Modifier
@@ -127,25 +139,18 @@ fun SwamPaperSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp)
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "SWAM Optimization Lab (arXiv:2306.08345)",
-                        color = NeonCyan,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "Adaptive Swap • OOM Cleaner • EOOM Cost-Aware • Infinite Undo",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.5.sp
-                    )
-                }
+            Column {
+                Text(
+                    text = "Cấu hình bộ nhớ phân tầng (Ariadne & SWAM)",
+                    color = Color(0xFFF3F4F6),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Hot / Warm / Cold · HotnessOrg · AdaptiveComp · Prefetch · Khử trùng lặp",
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 11.sp
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -153,17 +158,17 @@ fun SwamPaperSheet(
             PrimaryTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = CyberSurfaceVariant,
-                contentColor = NeonCyan
+                contentColor = SkyBlue
             ) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("⚙️ Cấu Hình SWAM & Undo Vô Hạn", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("Cấu hình tham số", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("📄 Lý Thuyết Bài Báo SWAM", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("Cơ sở lý thuyết", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
                 )
             }
 
@@ -174,13 +179,13 @@ fun SwamPaperSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // 1. Infinite Undo Card
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFF101D33),
-                        border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.5f))
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF14171D),
+                        border = BorderStroke(1.dp, Color(0xFF282D37))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(
@@ -190,15 +195,15 @@ fun SwamPaperSheet(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "♾️ Chế độ Undo Vô Hạn (Infinite Undo — O(1) RAM)",
-                                        color = NeonCyan,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 13.5.sp
+                                        text = "Mở rộng lưu trữ sang tầng Cold (Flash)",
+                                        color = Color(0xFFF3F4F6),
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp
                                     )
                                     Text(
-                                        text = "RAM luôn bị chặn trên bởi (Hot + Warm). Mọi bước cũ tự động nén & đẩy xuống bộ nhớ Flash (.chrf), cho phép hoàn tác hàng nghìn bước không bao giờ OOM!",
-                                        color = Color(0xFFCBD5E1),
-                                        fontSize = 11.5.sp
+                                        text = "Giữ RAM trong ngân sách (Hot + Warm). Các bước cũ được nén xuống tệp .chrf trên bộ nhớ trong.",
+                                        color = Color(0xFF9CA3AF),
+                                        fontSize = 11.sp
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -209,8 +214,8 @@ fun SwamPaperSheet(
                                         pushConfigUpdate(newInfinite = it)
                                     },
                                     colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Color.Black,
-                                        checkedTrackColor = RadiantMint
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = SkyBlue
                                     )
                                 )
                             }
@@ -227,14 +232,15 @@ fun SwamPaperSheet(
                                         onDismiss()
                                     },
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = EmeraldGreen,
-                                        contentColor = Color.Black
+                                        containerColor = Color(0xFF22262F),
+                                        contentColor = Color(0xFFF3F4F6)
                                     ),
+                                    shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(Icons.Default.Speed, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Bơm +50 Nét Vẽ", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                                    Text("Vẽ +50 bước", fontWeight = FontWeight.Medium, fontSize = 12.sp)
                                 }
                                 Button(
                                     onClick = {
@@ -242,30 +248,31 @@ fun SwamPaperSheet(
                                         onDismiss()
                                     },
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = NeonCyan,
-                                        contentColor = Color.Black
+                                        containerColor = Color(0xFF2563EB),
+                                        contentColor = Color.White
                                     ),
+                                    shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(Icons.Default.AutoAwesome, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Test +200 Bước ∞", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                                    Text("Vẽ +200 bước", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                                 }
                             }
                         }
                     }
 
-                    // 2. SWAM EOOM Eviction Policy
+                    // 2. Eviction Policy
                     OutlinedCard(
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF283A5A))
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF282D37))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "🎯 Chính sách chọn nạn nhân (SWAM EOOM Victim Selection)",
-                                color = SkyBlue,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                text = "Chính sách chọn bản vá hạ cấp (Eviction Strategy)",
+                                color = Color(0xFFF3F4F6),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(
@@ -284,12 +291,12 @@ fun SwamPaperSheet(
                                             Text(
                                                 text = strategy.title,
                                                 fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Medium
                                             )
                                         },
                                         colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = NeonCyan.copy(alpha = 0.22f),
-                                            selectedLabelColor = NeonCyan
+                                            selectedContainerColor = SkyBlue.copy(alpha = 0.2f),
+                                            selectedLabelColor = SkyBlue
                                         ),
                                         modifier = Modifier.weight(1f)
                                     )
@@ -297,38 +304,38 @@ fun SwamPaperSheet(
                             }
                             Text(
                                 text = evictionStrategy.subtitle,
-                                color = Color(0xFF94A3B8),
+                                color = Color(0xFF9CA3AF),
                                 fontSize = 11.sp
                             )
                         }
                     }
 
-                    // 3. Adaptive Swap Budgets (Hot & Warm Sliders)
+                    // 3. Tier Budgets & AdaptiveComp
                     OutlinedCard(
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF283A5A))
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF282D37))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "🔥 Ngân sách Adaptive Swap (Giới hạn Heap thiết bị: ${maxHeapMb.toInt()} MB)",
-                                color = AmberGold,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                text = "Ngân sách bộ nhớ tầng Hot & Warm (Trần Heap: ${maxHeapMb.toInt()} MB)",
+                                color = Color(0xFFF3F4F6),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
                             )
                             Spacer(modifier = Modifier.height(6.dp))
 
                             Text(
-                                text = String.format(Locale.US, "Ngân sách HOT (Bitmap RAM): %.1f MB", hotMbSlider),
+                                text = String.format(Locale.US, "Ngân sách tầng Hot (Bitmap RAM): %.1f MB", hotMbSlider),
                                 color = CoralRose,
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = hotMbSlider,
                                 onValueChange = { hotMbSlider = it },
                                 onValueChangeFinished = { pushConfigUpdate() },
-                                valueRange = 4f..(maxHeapMb * 0.35f).coerceAtLeast(16f),
+                                valueRange = 1f..(maxHeapMb * 0.35f).coerceAtLeast(16f),
                                 colors = SliderDefaults.colors(
                                     thumbColor = CoralRose,
                                     activeTrackColor = CoralRose
@@ -336,17 +343,17 @@ fun SwamPaperSheet(
                             )
 
                             Text(
-                                text = String.format(Locale.US, "Ngân sách WARM (zRAM Deflate): %.1f MB", warmMbSlider),
+                                text = String.format(Locale.US, "Ngân sách tầng Warm (Nén trên RAM): %.2f MB", warmMbSlider),
                                 color = AmberGold,
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = warmMbSlider,
                                 onValueChange = { warmMbSlider = it },
                                 onValueChangeFinished = { pushConfigUpdate() },
-                                valueRange = 4f..(maxHeapMb * 0.35f).coerceAtLeast(16f),
+                                valueRange = 0.25f..(maxHeapMb * 0.35f).coerceAtLeast(16f),
                                 colors = SliderDefaults.colors(
                                     thumbColor = AmberGold,
                                     activeTrackColor = AmberGold
@@ -359,10 +366,10 @@ fun SwamPaperSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Mức nén Deflate: Level $compressionLevel (${if (compressionLevel == 1) "Nhanh nhất - Chuẩn zRAM" else "Nén sâu"})",
-                                    color = Color(0xFFE2E8F0),
+                                    text = "Mức nén Warm: Level $compressionLevel",
+                                    color = Color(0xFFD1D5DB),
                                     fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Medium
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     listOf(1, 3, 6, 9).forEach { lvl ->
@@ -377,13 +384,82 @@ fun SwamPaperSheet(
                                     }
                                 }
                             }
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                color = Color(0xFF282D37)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Ariadne AdaptiveComp (Nén thích ứng theo tầng)",
+                                        color = Color(0xFFF3F4F6),
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = "Warm nén nhanh (L$compressionLevel); Cold tái nén sâu (L$coldCompressionLevel, khối $adaptiveCompBlockSize bản vá).",
+                                        color = Color(0xFF9CA3AF),
+                                        fontSize = 10.5.sp
+                                    )
+                                }
+                                Switch(
+                                    checked = adaptiveCompEnabled,
+                                    onCheckedChange = {
+                                        adaptiveCompEnabled = it
+                                        pushConfigUpdate(newAdaptiveComp = it)
+                                    }
+                                )
+                            }
+
+                            if (adaptiveCompEnabled) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Mức nén Cold & cỡ khối:",
+                                        color = Color(0xFFD1D5DB),
+                                        fontSize = 11.sp
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        listOf(6, 9).forEach { cLvl ->
+                                            FilterChip(
+                                                selected = coldCompressionLevel == cLvl,
+                                                onClick = {
+                                                    coldCompressionLevel = cLvl
+                                                    pushConfigUpdate(newColdCompLevel = cLvl)
+                                                },
+                                                label = { Text("Cold L$cLvl", fontSize = 10.sp) }
+                                            )
+                                        }
+                                        listOf(1, 4, 8).forEach { blk ->
+                                            FilterChip(
+                                                selected = adaptiveCompBlockSize == blk,
+                                                onClick = {
+                                                    adaptiveCompBlockSize = blk
+                                                    pushConfigUpdate(newBlockSize = blk)
+                                                },
+                                                label = { Text("${blk}P", fontSize = 10.sp) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    // 4. Prefetcher & SWAM OOM Cleaner Actions
+                    // 4. Prefetcher & OOM Cleaner Actions
                     OutlinedCard(
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF283A5A))
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF282D37))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(
@@ -393,14 +469,14 @@ fun SwamPaperSheet(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "🚀 Prefetcher (Nạp trước K=5 bước từ Cold → Warm)",
-                                        color = RadiantMint,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        text = "Nạp trước bất đồng bộ (Prefetcher K = 5)",
+                                        color = Color(0xFFF3F4F6),
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.5.sp
                                     )
                                     Text(
-                                        text = "Khi Undo liên tục, tự động đọc trước 5 file Cold lên Warm ở luồng nền để tránh giật UI.",
-                                        color = Color(0xFF94A3B8),
+                                        text = "Khi hoàn tác liên tục, tự động nạp trước 5 tệp từ Cold lên Warm trên luồng I/O.",
+                                        color = Color(0xFF9CA3AF),
                                         fontSize = 11.sp
                                     )
                                 }
@@ -412,7 +488,7 @@ fun SwamPaperSheet(
 
                             HorizontalDivider(
                                 modifier = Modifier.padding(vertical = 8.dp),
-                                color = Color(0xFF22324C)
+                                color = Color(0xFF282D37)
                             )
 
                             Row(
@@ -422,34 +498,34 @@ fun SwamPaperSheet(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "🧹 SWAM OOM Cleaner (Khử trùng lặp CRC32)",
-                                        color = AmberGold,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        text = "Bộ dọn trùng lặp (CRC32 Deduplication)",
+                                        color = Color(0xFFF3F4F6),
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.5.sp
                                     )
                                     Text(
-                                        text = "Đã gộp: ${telemetry.deduplicatedPatches} patch (${telemetry.oomCleanerReclaimedKb.toInt()} KB giải phóng)",
-                                        color = Color(0xFFCBD5E1),
+                                        text = "Đã gộp: ${telemetry.deduplicatedPatches} bản vá (${telemetry.oomCleanerReclaimedKb.toInt()} KB thu hồi)",
+                                        color = Color(0xFF9CA3AF),
                                         fontSize = 11.sp
                                     )
                                 }
                                 Button(
                                     onClick = onRunOomCleaner,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = AmberGold,
-                                        contentColor = Color.Black
-                                    )
+                                        containerColor = Color(0xFF22262F),
+                                        contentColor = Color(0xFFF3F4F6)
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Icon(Icons.Default.CleaningServices, contentDescription = null)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Dọn Ngay", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("Dọn ngay", fontWeight = FontWeight.Medium, fontSize = 12.sp)
                                 }
                             }
                         }
                     }
                 }
             } else {
-                // TAB 2: SWAM Paper Breakdown (arXiv:2306.08345)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -457,40 +533,44 @@ fun SwamPaperSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     PaperConceptCard(
-                        badge = "BÀI BÁO GỐC • arXiv:2306.08345",
-                        title = "SWAM: Revisiting Swap and OOMK for Improving Application Responsiveness on Mobile Devices",
-                        body = "Tác giả: Geunsik Lim, Donghyun Kang, MyungJoo Ham, Young Ik Eom (Samsung Research & SKKU).\n" +
-                            "Vấn đề: Trên thiết bị di động Android, cơ chế Swap truyền thống (zRAM/Flash) và OOM Killer (LMKD) hoạt động rời rạc, gây giật lag (frame drop) hoặc giết nhầm ứng dụng đang giữ trạng thái quan trọng.\n" +
-                            "Kết quả của SWAM: Giảm 6.5× số lần OOM kill, tăng 41% tốc độ phản hồi ứng dụng.",
-                        accentColor = NeonCyan
+                        badge = "BÀI BÁO CHÍNH • ARIADNE (HPCA 2025 • arXiv:2502.12826)",
+                        title = "Ariadne: Hotness-Aware and Size-Adaptive Compressed Swap (CMU-SAFARI)",
+                        body = "• Mã nguồn: github.com/CMU-SAFARI/Ariadne (Đánh giá trên Google Pixel 7, Android 14).\n" +
+                            "• Mô hình 3 tầng:\n" +
+                            "  1. Hot: Dữ liệu chưa nén trong RAM chính.\n" +
+                            "  2. Warm: Dữ liệu nén nhanh trong vùng nhớ nén trên RAM.\n" +
+                            "  3. Cold: Dữ liệu nén mật độ cao lưu xuống bộ nhớ Flash.\n" +
+                            "• HotnessOrg: Phân loại độ nóng dữ liệu chi phí thấp dựa trên khoảng cách tới đỉnh ngăn xếp Undo.\n" +
+                            "• AdaptiveComp: Nén nhanh (Deflater Level 1) ở tầng Warm để giảm độ trễ khôi phục, và tái nén sâu (Level 9) khi chuyển xuống tầng Cold.",
+                        accentColor = SkyBlue
                     )
 
                     PaperConceptCard(
-                        badge = "TRỤ CỘT 1 • ADAPTIVE SWAP",
-                        title = "Hoán đổi đa tầng thích ứng: Hot RAM → Warm zRAM → Cold Flash",
-                        body = "• Trong Kernel (SWAM): Điều phối linh hoạt việc swap trang nhớ vào RAM nén (zRAM) hay bộ nhớ Flash dựa trên áp lực bộ nhớ.\n" +
-                            "• Trong Chronos Canvas: Thay vì lưu toàn bộ Bitmap 2048×2048 (16 MiB/bước), ta chỉ trích xuất vùng Dirty-Rect và đẩy qua 3 tầng:\n" +
-                            "  1. HOT (Bitmap trong RAM): Undo tức thời O(1) (~1ms).\n" +
-                            "  2. WARM (Deflate Lossless trong RAM - tương đương zRAM): Giảm dung lượng 8×–25×.\n" +
-                            "  3. COLD (File .chrf trên Flash - tương đương Swap File): Ghi nguyên tử (temp → rename) kèm mã kiểm tra CRC32.",
+                        badge = "BÀI BÁO BỔ SUNG 1 • ACM 2025 (doi:10.1145/3760385)",
+                        title = "App-aware Swap Resource Allocation (Prefetching)",
+                        body = "• Kết hợp bộ nhớ nén trên RAM và Flash Swap, sử dụng cơ chế nạp trước (Prefetching) để giảm độ trễ đọc từ bộ nhớ Flash.\n" +
+                            "• Ánh xạ vào ứng dụng: Bộ Prefetcher nạp trước cửa sổ K = 5 bước từ tầng Cold lên tầng Warm khi người dùng hoàn tác liên tục.",
                         accentColor = EmeraldGreen
                     )
 
                     PaperConceptCard(
-                        badge = "TRỤ CỘT 2 • OOM CLEANER",
-                        title = "Thu hồi vùng nhớ trùng lặp trong không gian Swap",
-                        body = "• Trong Kernel (SWAM): OOM Cleaner quét và giải phóng các trang thư viện/dữ liệu trùng lặp trong vùng swap trước khi phải gọi OOM Killer.\n" +
-                            "• Trong Chronos Canvas: Khi người dùng vẽ trên vùng nền giống nhau hoặc lặp lại thao tác, OOM Cleaner đối chiếu mã băm (CRC32 + RawLength) để dùng chung mảng byte nén ở tầng Warm và dùng chung file .chrf ở tầng Cold, tiết kiệm cả RAM lẫn Flash.",
+                        badge = "BÀI BÁO BỔ SUNG 2 • SWAM (arXiv:2306.08345)",
+                        title = "SWAM: Revisiting Swap and OOMK for Improving Application Responsiveness",
+                        body = "• Hạ cấp vùng nhớ thay vì chấm dứt tiến trình khi thiếu RAM, kết hợp chọn nạn nhân theo chi phí (Cost-Aware) và khử trùng lặp (OOM Cleaner).\n" +
+                            "• Ánh xạ vào ứng dụng: Khi hệ thống báo thiếu bộ nhớ (onTrimMemory), ứng dụng hạ cấp Hot → Warm → Cold và gộp các bản vá trùng mã kiểm tra CRC32.",
                         accentColor = AmberGold
                     )
 
                     PaperConceptCard(
-                        badge = "TRỤ CỘT 3 • EOOM & UNDO VÔ HẠN",
-                        title = "Vì sao Chronos Canvas đạt được Undo Vô Hạn (Infinite Undo)?",
-                        body = "• Với chế độ Naive: RAM(N) = 16 MiB × N → Tăng tuyến tính O(N), chắc chắn tràn Heap (OOM) sau 15–25 bước.\n" +
-                            "• Với chế độ Tiered SWAM: RAM(N) ≤ Ngân_sách_Hot + Ngân_sách_Warm = Hằng số O(1)!\n" +
-                            "• Mọi bước vượt ngân sách RAM đều được chuyển xuống Cold Flash. Với mỗi patch nén chỉ ~20–80 KB, 1 GB bộ nhớ trong lưu được hơn 20.000 bước hoàn tác mà RAM ứng dụng không hề tăng thêm!",
-                        accentColor = CoralRose
+                        badge = "ĐỐI CHIẾU KIẾN TRÚC • OS-LEVEL ↔ APPLICATION-LEVEL",
+                        title = "Ánh xạ từ trang bộ nhớ hệ điều hành sang bản vá ảnh ứng dụng",
+                        body = "• Hot (DRAM chưa nén) ↔ HotStore: Bitmap Patch trong RAM\n" +
+                            "• Warm (zpool / zRAM) ↔ WarmStore: Bản vá nén nhanh (Deflater L1) trong RAM\n" +
+                            "• Cold (Flash Swap) ↔ ColdStore: Tệp nhị phân .chrf trên bộ nhớ trong\n" +
+                            "• HotnessOrg ↔ TierPolicy (Khoảng cách tới đỉnh ngăn xếp Undo)\n" +
+                            "• AdaptiveComp ↔ Warm nén nhanh L1; Cold tái nén sâu L9 theo khối\n" +
+                            "• Swap Prefetch ↔ Prefetcher nạp trước K = 5 bước từ Cold lên Warm",
+                        accentColor = RadiantMint
                     )
                 }
             }
@@ -506,34 +586,33 @@ private fun PaperConceptCard(
     accentColor: Color
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF0F1829),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF14171D),
+        border = BorderStroke(1.dp, Color(0xFF282D37)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = badge,
                 color = accentColor,
-                fontSize = 10.sp,
+                fontSize = 9.5.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = title,
-                color = Color.White,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.Bold
+                color = Color(0xFFF3F4F6),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(5.dp))
             Text(
                 text = body,
-                color = Color(0xFFCBD5E1),
-                fontSize = 11.5.sp,
-                lineHeight = 16.5.sp
+                color = Color(0xFFD1D5DB),
+                fontSize = 11.sp,
+                lineHeight = 16.sp
             )
         }
     }
 }
-

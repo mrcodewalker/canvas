@@ -2,7 +2,6 @@ package com.example.canvas.ui.compose
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,7 +24,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -38,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,10 +47,8 @@ import com.example.canvas.history.HistoryMode
 import com.example.canvas.ui.theme.AmberGold
 import com.example.canvas.ui.theme.CoralRose
 import com.example.canvas.ui.theme.CyberObsidian
-import com.example.canvas.ui.theme.CyberSurface
 import com.example.canvas.ui.theme.ElectricIndigo
 import com.example.canvas.ui.theme.EmeraldGreen
-import com.example.canvas.ui.theme.NeonCyan
 import com.example.canvas.ui.theme.RadiantMint
 import com.example.canvas.ui.theme.SkyBlue
 import java.util.Locale
@@ -62,7 +56,7 @@ import kotlin.math.ln
 import kotlin.math.max
 
 /**
- * Comprehensive telemetry and theoretical capacity metrics captured for one mode
+ * Real measured telemetry and derived capacity metrics captured for one mode
  * during the 3-Mode Auto Demo or Benchmark comparison.
  */
 data class ModeEvaluationMetrics(
@@ -91,13 +85,6 @@ data class SwamComparisonReport(
     val tieredSwam: ModeEvaluationMetrics
 )
 
-/**
- * Full-screen Material 3 Report Modal displaying:
- * 1. Executive Summary (Before vs After Optimization Undo Capacity)
- * 2. Visual Comparative Bar Charts (Peak RAM, Size per Step, Max Undo Capacity)
- * 3. Side-by-Side Telemetry Table
- * 4. Mathematical Formulas & Proofs (Why Naive OOMs vs Why SWAM achieves Infinite Undo)
- */
 @Composable
 fun SwamDemoReportModal(
     report: SwamComparisonReport,
@@ -117,10 +104,10 @@ fun SwamDemoReportModal(
                 .background(CyberObsidian)
                 .systemBarsPadding()
         ) {
-            // Top Sticky Bar
+            // Top Header Bar
             Surface(
-                color = Color(0xFF0C1322),
-                border = BorderStroke(1.dp, Color(0xFF1F2E47)),
+                color = Color(0xFF181B21),
+                border = BorderStroke(1.dp, Color(0xFF2E333E)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -134,22 +121,22 @@ fun SwamDemoReportModal(
                         Icon(
                             imageVector = Icons.Default.Analytics,
                             contentDescription = null,
-                            tint = NeonCyan,
-                            modifier = Modifier.size(22.dp)
+                            tint = SkyBlue,
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "BÁO CÁO KẾT QUẢ TỐI ƯU BỘ NHỚ (SWAM)",
-                                color = Color.White,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                text = "Báo cáo thực nghiệm so sánh 3 chế độ lưu lịch sử",
+                                color = Color(0xFFF3F4F6),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "So sánh 3 Chế độ: Trước tối ưu (HOT) vs Sau tối ưu (SWAM 3 Tầng)",
-                                color = NeonCyan,
+                                text = "Số liệu đo trực tiếp trên thiết bị (Naive · Dirty Rect · Tiered 3 tầng)",
+                                color = Color(0xFF9CA3AF),
                                 fontSize = 10.5.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Normal
                             )
                         }
                     }
@@ -157,15 +144,15 @@ fun SwamDemoReportModal(
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF28131C))
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF22262F))
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Đóng",
-                            tint = CoralRose,
-                            modifier = Modifier.size(18.dp)
+                            tint = Color(0xFFD1D5DB),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
@@ -178,9 +165,8 @@ fun SwamDemoReportModal(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 1. HERO SUMMARY: Before vs After Undo Capacity
                 SwamComparisonReportContent(report = report)
 
                 // Bottom Action Buttons
@@ -191,27 +177,29 @@ fun SwamDemoReportModal(
                     Button(
                         onClick = onRerunDemo,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonCyan,
-                            contentColor = Color.Black
+                            containerColor = Color(0xFF22262F),
+                            contentColor = Color(0xFFF3F4F6)
                         ),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Replay, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Chạy Lại Demo 3 Mode", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                        Text("Chạy lại phép đo", fontWeight = FontWeight.Medium, fontSize = 12.sp)
                     }
 
                     Button(
                         onClick = onDismiss,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = EmeraldGreen,
-                            contentColor = Color.Black
+                            containerColor = Color(0xFF2563EB),
+                            contentColor = Color.White
                         ),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Quay Lại Bàn Vẽ", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                        Text("Quay lại bàn vẽ", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                     }
                 }
 
@@ -221,28 +209,25 @@ fun SwamDemoReportModal(
     }
 }
 
-/**
- * Reusable report body composable that can be embedded both in the full-screen
- * [SwamDemoReportModal] and inside [com.example.canvas.ui.BenchmarkActivity].
- */
 @Composable
 fun SwamComparisonReportContent(
     report: SwamComparisonReport
 ) {
-    val capacityMultiplier = (report.tieredSwam.maxUndoWithDiskSteps.toDouble() /
-        report.naive.maxUndoInRamSteps.coerceAtLeast(1)).toInt()
+    val capacityMultiplier = if (report.naive.maxUndoInRamSteps > 0) {
+        (report.tieredSwam.maxUndoWithDiskSteps.toDouble() / report.naive.maxUndoInRamSteps.toDouble()).toInt()
+    } else 0
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // =========================================================================
-        // PHẦN 1: TỔNG KẾT TRƯỚC & SAU TỐI ƯU (CHỨA ĐƯỢC BAO NHIÊU LẦN UNDO?)
+        // PHẦN 1: TỔNG KẾT SỨC CHỨA LỊCH SỬ HOÀN TÁC
         // =========================================================================
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xFF0E182B),
-            border = BorderStroke(1.5.dp, NeonCyan.copy(alpha = 0.7f)),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF181B21),
+            border = BorderStroke(1.dp, Color(0xFF2E333E)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -253,76 +238,78 @@ fun SwamComparisonReportContent(
                     Icon(
                         imageVector = Icons.Default.AllInclusive,
                         contentDescription = null,
-                        tint = RadiantMint,
-                        modifier = Modifier.size(20.dp)
+                        tint = SkyBlue,
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "1. TRƯỚC VS SAU TỐI ƯU CHỨA ĐƯỢC BAO NHIÊU LẦN UNDO?",
-                        color = RadiantMint,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        text = "1. Sức chứa lịch sử hoàn tác trước và sau tối ưu",
+                        color = Color(0xFFF3F4F6),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 Text(
-                    text = "Thiết bị hiện tại có trần Heap là ${report.deviceHeapLimitMb} MB (Ngân sách lịch sử khả dụng ~${report.availableHeapForHistoryMb} MB RAM + ${report.coldStorageBudgetMb} MB bộ nhớ Cold):",
-                    color = Color(0xFFCBD5E1),
-                    fontSize = 11.5.sp
+                    text = "Giới hạn Heap của thiết bị: ${report.deviceHeapLimitMb} MB (Ngân sách lịch sử khả dụng: ${report.availableHeapForHistoryMb} MB RAM + ${report.coldStorageBudgetMb} MB bộ nhớ Cold):",
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 11.sp
                 )
 
-                // 3 Hero Capacity Cards
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     CapacityCompareBox(
-                        badge = "TRƯỚC TỐI ƯU",
-                        modeTitle = "NAIVE (HOT)",
-                        undoCountText = "~${report.naive.maxUndoInRamSteps} lần",
-                        detailText = "16.0 MB / bước\nLưu 100% ở HOT RAM",
+                        badge = "Trước tối ưu",
+                        modeTitle = "Naive",
+                        undoCountText = "${report.naive.maxUndoInRamSteps} bước",
+                        detailText = String.format(
+                            Locale.US,
+                            "%.1f MB / bước\nLưu toàn bộ trong RAM",
+                            report.naive.avgStepSizeKb / 1024.0
+                        ),
                         color = CoralRose,
                         modifier = Modifier.weight(1f)
                     )
                     CapacityCompareBox(
-                        badge = "TỐI ƯU MỨC 1",
-                        modeTitle = "DIRTY RECT",
-                        undoCountText = "~${report.dirtyRect.maxUndoInRamSteps} lần",
+                        badge = "Tối ưu mức 1",
+                        modeTitle = "Dirty Rect",
+                        undoCountText = "${report.dirtyRect.maxUndoInRamSteps} bước",
                         detailText = String.format(
                             Locale.US,
-                            "%.2f MB / bước\nCắt vùng bao ở HOT",
-                            report.dirtyRect.avgStepSizeKb / 1024.0
+                            "%.1f KB / bước\nCắt vùng bao trong RAM",
+                            report.dirtyRect.avgStepSizeKb
                         ),
                         color = AmberGold,
                         modifier = Modifier.weight(1f)
                     )
                     CapacityCompareBox(
-                        badge = "SAU TỐI ƯU (SWAM)",
-                        modeTitle = "TIERED 3 TẦNG",
-                        undoCountText = "${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)}+ lần",
+                        badge = "Sau tối ưu (3 tầng)",
+                        modeTitle = "Tiered",
+                        undoCountText = "${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước",
                         detailText = String.format(
                             Locale.US,
-                            "~%.0f KB / bước (Nén %.1fx)\nRAM O(1) • Undo Vô Hạn",
+                            "%.1f KB / bước (Nén %.1fx)\nHot · Warm · Cold",
                             report.tieredSwam.avgStepSizeKb,
                             report.tieredSwam.compressionRatio
                         ),
                         color = RadiantMint,
-                        modifier = Modifier.weight(1.15f)
+                        modifier = Modifier.weight(1.1f)
                     )
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = RadiantMint.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, RadiantMint.copy(alpha = 0.45f)),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF14171D),
+                    border = BorderStroke(1.dp, Color(0xFF282D37)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "💡 Kết luận thực nghiệm: Nhờ hạ cấp 3 tầng (Hot Bitmap → Warm Deflate → Cold Flash) kết hợp cắt khung Dirty-Rect và OOM Cleaner, sức chứa lịch sử Undo tăng gấp ${String.format(Locale.US, "%,d", capacityMultiplier)} lần (từ ~${report.naive.maxUndoInRamSteps} bước lên hơn ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước) mà RAM không bao giờ vượt quá ngân sách cố định!",
-                        color = Color(0xFFE2E8F0),
+                        text = "Nhận xét từ số liệu thực nghiệm: Khi kết hợp cắt khung bao (Dirty Rect) với phân tầng bộ nhớ Hot → Warm (nén Deflate) → Cold (tệp .chrf trên Flash), dung lượng trung bình mỗi bước giảm còn ${String.format(Locale.US, "%.1f", report.tieredSwam.avgStepSizeKb)} KB, giúp số bước hoàn tác tối đa tăng gấp ${String.format(Locale.US, "%,d", capacityMultiplier)} lần (từ ${report.naive.maxUndoInRamSteps} bước lên ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước).",
+                        color = Color(0xFFD1D5DB),
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
-                        fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(10.dp)
                     )
                 }
@@ -330,139 +317,124 @@ fun SwamComparisonReportContent(
         }
 
         // =========================================================================
-        // PHẦN 2: BIỂU ĐỒ SO SÁNH TRỰC QUAN 3 CHẾ ĐỘ (VISUAL CHARTS)
+        // PHẦN 2: BIỂU ĐỒ ĐỐI CHIẾU SỐ LIỆU ĐO THỰC TẾ
         // =========================================================================
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = CyberSurface,
-            border = BorderStroke(1.dp, Color(0xFF23344E)),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF181B21),
+            border = BorderStroke(1.dp, Color(0xFF2E333E)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
                 modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "2. BIỂU ĐỒ SO SÁNH SỐ LIỆU ĐO ĐẠC THỰC TẾ",
-                    color = NeonCyan,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    text = "2. Biểu đồ số liệu đo thực tế",
+                    color = Color(0xFFF3F4F6),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
 
-                // Biểu đồ A: Đỉnh RAM tiêu thụ (Peak RAM in MiB)
                 val maxPeakRam = max(
                     16.0,
                     max(report.naive.peakRamMb, max(report.dirtyRect.peakRamMb, report.tieredSwam.peakRamMb))
                 )
                 Text(
-                    text = "📊 Biểu đồ A: Đỉnh RAM Lịch Sử (Hot + Warm RAM — Càng thấp càng tối ưu)",
-                    color = Color(0xFFF1F5F9),
+                    text = "A. Bộ nhớ RAM lịch sử tiêu thụ (Hot + Warm RAM)",
+                    color = Color(0xFFD1D5DB),
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Medium
                 )
                 MetricBarRow(
-                    label = "NAIVE (${report.naive.stepsExecuted} bước • Cận OOM)",
-                    valueText = String.format(Locale.US, "%.1f MB RAM", report.naive.peakRamMb),
+                    label = "Naive (${report.naive.stepsExecuted} bước thực thi)",
+                    valueText = String.format(Locale.US, "%.2f MB RAM", report.naive.peakRamMb),
                     fraction = (report.naive.peakRamMb / maxPeakRam).toFloat(),
                     color = CoralRose
                 )
                 MetricBarRow(
-                    label = "DIRTY_RECT (${report.dirtyRect.stepsExecuted} bước • Nằm ở HOT)",
-                    valueText = String.format(Locale.US, "%.1f MB RAM", report.dirtyRect.peakRamMb),
+                    label = "Dirty Rect (${report.dirtyRect.stepsExecuted} bước thực thi)",
+                    valueText = String.format(Locale.US, "%.2f MB RAM", report.dirtyRect.peakRamMb),
                     fraction = (report.dirtyRect.peakRamMb / maxPeakRam).toFloat(),
                     color = AmberGold
                 )
                 MetricBarRow(
-                    label = "TIERED SWAM (${report.tieredSwam.stepsExecuted} bước • Bị chặn O(1))",
+                    label = "Tiered (${report.tieredSwam.stepsExecuted} bước: Hot ${String.format(Locale.US, "%.2fM", report.tieredSwam.hotMb)}, Warm ${String.format(Locale.US, "%.2fM", report.tieredSwam.warmMb)}, Cold ${String.format(Locale.US, "%.2fM", report.tieredSwam.coldMb)})",
                     valueText = String.format(
                         Locale.US,
-                        "%.1f MB RAM (+ %.1fM Cold)",
+                        "%.2f MB RAM (+ %.2f MB Flash)",
                         report.tieredSwam.hotMb + report.tieredSwam.warmMb,
                         report.tieredSwam.coldMb
                     ),
-                    fraction = ((report.tieredSwam.hotMb + report.tieredSwam.warmMb) / maxPeakRam)
-                        .toFloat()
-                        .coerceAtLeast(0.06f),
+                    fraction = ((report.tieredSwam.hotMb + report.tieredSwam.warmMb) / maxPeakRam).toFloat(),
                     color = RadiantMint
                 )
 
-                HorizontalDivider(color = Color(0xFF1E2D46))
+                HorizontalDivider(color = Color(0xFF282D37))
 
-                // Biểu đồ B: Kích thước trung bình 1 bước Undo (KB/step)
                 val maxStepKb = max(16384.0, report.naive.avgStepSizeKb)
                 Text(
-                    text = "📉 Biểu đồ B: Dung lượng trung bình 1 bước lưu trữ (KB / bước)",
-                    color = Color(0xFFF1F5F9),
+                    text = "B. Dung lượng trung bình mỗi bước lưu trữ (KB / bước)",
+                    color = Color(0xFFD1D5DB),
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Medium
                 )
                 MetricBarRow(
-                    label = "NAIVE (Full 2048×2048 ARGB_8888)",
-                    valueText = "16,384 KB (16.0 MB / bước)",
-                    fraction = 1.0f,
+                    label = "Naive (Bản sao 2048×2048 ARGB_8888)",
+                    valueText = String.format(Locale.US, "%.1f KB / bước", report.naive.avgStepSizeKb),
+                    fraction = (report.naive.avgStepSizeKb / maxStepKb).toFloat(),
                     color = CoralRose
                 )
                 MetricBarRow(
-                    label = "DIRTY_RECT (Khung chữ nhật chưa nén)",
-                    valueText = String.format(
-                        Locale.US,
-                        "%.0f KB (%.2f MB / bước)",
-                        report.dirtyRect.avgStepSizeKb,
-                        report.dirtyRect.avgStepSizeKb / 1024.0
-                    ),
-                    fraction = (report.dirtyRect.avgStepSizeKb / maxStepKb).toFloat().coerceAtLeast(0.08f),
+                    label = "Dirty Rect (Vùng bao chưa nén)",
+                    valueText = String.format(Locale.US, "%.1f KB / bước", report.dirtyRect.avgStepSizeKb),
+                    fraction = (report.dirtyRect.avgStepSizeKb / maxStepKb).toFloat(),
                     color = AmberGold
                 )
                 MetricBarRow(
-                    label = "TIERED SWAM (Dirty-Rect + Deflate Nén ${String.format(Locale.US, "%.1fx", report.tieredSwam.compressionRatio)})",
-                    valueText = String.format(
-                        Locale.US,
-                        "Chỉ ~%.0f KB / bước (Giảm %.0f lần!)",
-                        report.tieredSwam.avgStepSizeKb,
-                        16384.0 / report.tieredSwam.avgStepSizeKb.coerceAtLeast(1.0)
-                    ),
-                    fraction = (report.tieredSwam.avgStepSizeKb / maxStepKb).toFloat().coerceAtLeast(0.03f),
+                    label = "Tiered (Nén ${String.format(Locale.US, "%.1fx", report.tieredSwam.compressionRatio)} • Gộp trùng ${String.format(Locale.US, "%.1f KB", report.tieredSwam.oomCleanerSavedKb)})",
+                    valueText = String.format(Locale.US, "%.1f KB / bước", report.tieredSwam.avgStepSizeKb),
+                    fraction = (report.tieredSwam.avgStepSizeKb / maxStepKb).toFloat(),
                     color = RadiantMint
                 )
 
-                HorizontalDivider(color = Color(0xFF1E2D46))
+                HorizontalDivider(color = Color(0xFF282D37))
 
-                // Biểu đồ C: Sức chứa số lần Undo tối đa (Log-scale bar for clarity)
-                val maxLogCap = ln(report.tieredSwam.maxUndoWithDiskSteps.toDouble().coerceAtLeast(10.0))
                 Text(
-                    text = "🚀 Biểu đồ C: Sức chứa Số lần Undo tối đa (Thang Logarit — Càng dài càng mạnh)",
-                    color = Color(0xFFF1F5F9),
+                    text = "C. Độ trễ thực thi trung bình & tỷ lệ Prefetch Hit",
+                    color = Color(0xFFD1D5DB),
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Medium
                 )
+                val maxLatency = max(1.0, max(report.naive.avgLatencyMs, max(report.dirtyRect.avgLatencyMs, report.tieredSwam.avgLatencyMs)))
                 MetricBarRow(
-                    label = "NAIVE (Giới hạn bởi Heap / 16MB)",
-                    valueText = "Tối đa ~${report.naive.maxUndoInRamSteps} bước (Sập OOM)",
-                    fraction = (ln(report.naive.maxUndoInRamSteps.toDouble().coerceAtLeast(2.0)) / maxLogCap).toFloat(),
+                    label = "Naive (Thời gian sao chép Bitmap 16 MB)",
+                    valueText = String.format(Locale.US, "%.2f ms / bước", report.naive.avgLatencyMs),
+                    fraction = (report.naive.avgLatencyMs / maxLatency).toFloat(),
                     color = CoralRose
                 )
                 MetricBarRow(
-                    label = "DIRTY_RECT (Giới hạn bởi Heap / S_dirty)",
-                    valueText = "Tối đa ~${report.dirtyRect.maxUndoInRamSteps} bước (Vẫn sập nếu vẽ nhiều)",
-                    fraction = (ln(report.dirtyRect.maxUndoInRamSteps.toDouble().coerceAtLeast(2.0)) / maxLogCap).toFloat(),
+                    label = "Dirty Rect (Thời gian cắt vùng bao)",
+                    valueText = String.format(Locale.US, "%.2f ms / bước", report.dirtyRect.avgLatencyMs),
+                    fraction = (report.dirtyRect.avgLatencyMs / maxLatency).toFloat(),
                     color = AmberGold
                 )
                 MetricBarRow(
-                    label = "TIERED SWAM (Mở rộng xuống Cold Flash • RAM O(1))",
-                    valueText = "Hơn ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)}+ bước (UNDO VÔ HẠN ∞)",
-                    fraction = 1.0f,
-                    color = NeonCyan
+                    label = "Tiered (Độ trễ khôi phục Undo • Prefetch Hit ${String.format(Locale.US, "%.0f%%", report.tieredSwam.prefetchHitRate)})",
+                    valueText = String.format(Locale.US, "%.2f ms / bước", report.tieredSwam.avgLatencyMs),
+                    fraction = (report.tieredSwam.avgLatencyMs / maxLatency).toFloat(),
+                    color = SkyBlue
                 )
             }
         }
 
         // =========================================================================
-        // PHẦN 3: CƠ SỞ TOÁN HỌC & CHỨNG MINH (TẠI SAO TÍNH ĐƯỢC SỐ LẦN UNDO ĐÓ?)
+        // PHẦN 3: CƠ SỞ TÍNH TOÁN & LÝ GIẢI KỸ THUẬT
         // =========================================================================
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xFF0B1322),
-            border = BorderStroke(1.dp, ElectricIndigo.copy(alpha = 0.65f)),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF181B21),
+            border = BorderStroke(1.dp, Color(0xFF2E333E)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -474,66 +446,47 @@ fun SwamComparisonReportContent(
                         imageVector = Icons.Default.Functions,
                         contentDescription = null,
                         tint = ElectricIndigo,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "3. CÔNG THỨC TOÁN HỌC & LÝ GIẢI TẠI SAO ĐẠT ĐƯỢC CON SỐ TRÊN",
-                        color = ElectricIndigo,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        text = "3. Cơ sở tính toán từ số liệu thực nghiệm",
+                        color = Color(0xFFF3F4F6),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 
-                // Công thức 1: NAIVE
                 MathFormulaCard(
-                    stepBadge = "CÔNG THỨC 1 • TRƯỚC TỐI ƯU (LƯU KIỂU HOT NAIVE)",
-                    title = "Tại sao chế độ Naive chỉ lưu được ~${report.naive.maxUndoInRamSteps} lần Undo?",
-                    formula = "S_canvas = W × H × 4 bytes = 2048 × 2048 × 4 = 16.0 MiB / bước\n" +
-                        "RAM_Naive(N) = 16.0 MiB × N   ⇒   Độ phức tạp bộ nhớ: O(N)\n" +
-                        "N_max(Naive) = ⌊ M_avail / 16.0 MiB ⌋ = ⌊ ${report.availableHeapForHistoryMb} MB / 16.0 MB ⌋ = ${report.naive.maxUndoInRamSteps} bước",
-                    explanation = "Mỗi lần nhấc bút, Naive tạo một bản sao Bitmap 2048×2048 nguyên vẹn trong vùng nhớ HOT (Native Heap). Vì mỗi bức ảnh tốn cứng 16 MiB, chỉ sau ${report.naive.maxUndoInRamSteps} bước là chạm trần Heap khả dụng (${report.availableHeapForHistoryMb} MB) và gây văng ứng dụng (OutOfMemoryError).",
+                    stepBadge = "MÔ HÌNH 1 • NAIVE",
+                    title = "Giới hạn bộ nhớ khi sao chép toàn bộ Canvas (${report.naive.maxUndoInRamSteps} bước)",
+                    formula = "S_canvas = 2048 × 2048 × 4 bytes = 16,384 KB (16.0 MiB / bước)\n" +
+                        "RAM_Naive(N) = 16.0 MiB × N   ⇒   O(N)\n" +
+                        "N_max = ⌊ ${report.availableHeapForHistoryMb} MB / 16.0 MB ⌋ = ${report.naive.maxUndoInRamSteps} bước",
+                    explanation = "Mỗi thao tác vẽ tạo một bản sao Bitmap 2048×2048 nguyên vẹn trong RAM. Với ngân sách lịch sử khả dụng ${report.availableHeapForHistoryMb} MB, ứng dụng chỉ lưu được tối đa ${report.naive.maxUndoInRamSteps} bước trước khi cạn bộ nhớ.",
                     accentColor = CoralRose
                 )
 
-                // Công thức 2: DIRTY RECT
-                val alphaPct = ((report.dirtyRect.avgStepSizeKb / 16384.0) * 100.0).coerceIn(1.0, 100.0)
+                val alphaPct = (report.dirtyRect.avgStepSizeKb / 16384.0) * 100.0
                 MathFormulaCard(
-                    stepBadge = "CÔNG THỨC 2 • TỐI ƯU MỨC 1 (CẮT KHUNG BAO DIRTY-RECT Ở HOT)",
-                    title = "Tại sao Dirty-Rect nâng lên được ~${report.dirtyRect.maxUndoInRamSteps} bước nhưng vẫn chưa thể Vô Hạn?",
-                    formula = "Hệ số diện tích vùng bẩn: α = (w_rect × h_rect) / (2048 × 2048) ≈ ${String.format(Locale.US, "%.1f%%", alphaPct)}\n" +
-                        "S_dirty = α × 16.0 MiB ≈ ${String.format(Locale.US, "%.2f", report.dirtyRect.avgStepSizeKb / 1024.0)} MiB / bước\n" +
-                        "N_max(DirtyRect) = ⌊ ${report.availableHeapForHistoryMb} MB / ${String.format(Locale.US, "%.2f", (report.dirtyRect.avgStepSizeKb / 1024.0).coerceAtLeast(0.1))} MB ⌋ ≈ ${report.dirtyRect.maxUndoInRamSteps} bước",
-                    explanation = "Dirty-Rect chỉ chụp đúng khung hình chữ nhật bao quanh nét vẽ vừa thêm vào (mở rộng thêm strokeWidth/2 + 2px). Tuy nhiên, toàn bộ các mảnh Bitmap này VẪN NẰM TRONG HOT RAM và KHÔNG ĐƯỢC NÉN. Nếu người dùng dùng cọ lớn hoặc Đổ màu nền (α → 100%), nó vẫn cạn sạch RAM theo hàm tuyến tính O(N).",
+                    stepBadge = "MÔ HÌNH 2 • DIRTY RECT",
+                    title = "Cắt khung bao nét vẽ (${report.dirtyRect.maxUndoInRamSteps} bước trong RAM)",
+                    formula = "Tỷ lệ diện tích trung bình: α = S_dirty / S_canvas = ${String.format(Locale.US, "%.2f%%", alphaPct)}\n" +
+                        "S_dirty = ${String.format(Locale.US, "%.1f", report.dirtyRect.avgStepSizeKb)} KB / bước\n" +
+                        "N_max = ⌊ (${report.availableHeapForHistoryMb} × 1024 KB) / ${String.format(Locale.US, "%.1f", report.dirtyRect.avgStepSizeKb.coerceAtLeast(1.0))} KB ⌋ = ${report.dirtyRect.maxUndoInRamSteps} bước",
+                    explanation = "Chỉ lưu vùng hình chữ nhật bao quanh nét vẽ vừa thực hiện. Tuy giảm đáng kể dung lượng mỗi bước, toàn bộ dữ liệu vẫn nằm trên RAM chưa nén nên vẫn tăng tuyến tính O(N) khi vẽ nhiều nét lớn.",
                     accentColor = AmberGold
                 )
 
-                // Công thức 3: TIERED SWAM (arXiv:2306.08345)
                 MathFormulaCard(
-                    stepBadge = "CÔNG THỨC 3 • SAU TỐI ƯU (SWAM 3 TẦNG: HOT → WARM → COLD)",
-                    title = "Tại sao Tiered SWAM đạt RAM hằng số O(1) và chứa được ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)}+ lần Undo?",
-                    formula = "1) Chặn trên RAM tuyệt đối (Adaptive Swap Budget):\n" +
-                        "   RAM_SWAM(N) = RAM_Hot + RAM_Warm ≤ B_Hot + B_Warm = Hằng số O(1)\n\n" +
-                        "2) Kích thước 1 bước sau nén Lossless Deflate (r_comp ≈ ${String.format(Locale.US, "%.1fx", report.tieredSwam.compressionRatio)}) & OOM Cleaner:\n" +
-                        "   S_Cold = (α × 16 MiB) / r_comp + 36B (Header .chrf) ≈ ${String.format(Locale.US, "%.0f", report.tieredSwam.avgStepSizeKb)} KB / bước\n\n" +
-                        "3) Tổng số bước Undo tối đa (N_max):\n" +
-                        "   N_max = N_Hot + N_Warm + ⌊ D_Cold / S_Cold ⌋\n" +
-                        "   N_max ≈ ⌊ (${report.coldStorageBudgetMb} × 1024 KB) / ${String.format(Locale.US, "%.0f", report.tieredSwam.avgStepSizeKb.coerceAtLeast(1.0))} KB ⌋ ≈ ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)}+ bước!",
-                    explanation = "Lấy cảm hứng từ bài báo SWAM (arXiv:2306.08345):\n" +
-                        "• Tầng HOT giữ các bước mới nhất dưới dạng Bitmap để Undo tức thì O(1) (~1ms).\n" +
-                        "• Khi HOT đầy, TierPolicy tự động nén Lossless (Deflater) đẩy xuống tầng WARM (tương đương zRAM, nhỏ đi ${String.format(Locale.US, "%.1f", report.tieredSwam.compressionRatio)} lần).\n" +
-                        "• Khi WARM đầy, dữ liệu được ghi nguyên tử xuống file .chrf ở tầng COLD (Flash Disk) và GIẢI PHÓNG HOÀN TOÀN RAM. Do đó dù bạn vẽ 500 hay 20.000 bước, RAM của app vẫn giữ phẳng tuyệt đối!",
+                    stepBadge = "MÔ HÌNH 3 • TIERED (ARIADNE HPCA '25 + SWAM)",
+                    title = "Phân tầng Hot · Warm · Cold với ngân sách RAM cố định O(1)",
+                    formula = "RAM_Tiered(N) = RAM_Hot + RAM_Warm ≤ B_Hot + B_Warm = O(1)\n" +
+                        "Tỷ lệ nén đo được: r = RawEquivalent / TotalActual = ${String.format(Locale.US, "%.2fx", report.tieredSwam.compressionRatio)}\n" +
+                        "Dung lượng trung bình sau nén: S_tiered = ${String.format(Locale.US, "%.1f", report.tieredSwam.avgStepSizeKb)} KB / bước\n" +
+                        "N_max = N_RAM + ⌊ (${report.coldStorageBudgetMb} × 1024 KB) / S_tiered ⌋ = ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước",
+                    explanation = "Các bước mới nhất giữ ở tầng Hot (Bitmap RAM) để hoàn tác tức thì. Khi vượt ngân sách Hot, dữ liệu được nén nhanh sang tầng Warm (Deflater L1) và tái nén sâu (AdaptiveComp L9) xuống tầng Cold (.chrf trên bộ nhớ Flash), đồng thời Prefetcher nạp trước K=5 bước khi hoàn tác liên tục.",
                     accentColor = RadiantMint
-                )
-
-                // Công thức 4: PREFETCH & LATENCY
-                MathFormulaCard(
-                    stepBadge = "CÔNG THỨC 4 • TỐI ƯU ĐỘ TRỄ HOÀN TÁC VỚI PREFETCHER (K = 5)",
-                    title = "Tại sao đẩy xuống đĩa (Cold) nhưng bấm Undo liên tục vẫn không giật UI?",
-                    formula = "E[T_undo] = p_Hot·T_Hot + (1 - p_Hot)·[ h_prefetch·T_Warm + (1 - h_prefetch)·T_Cold ]\n" +
-                        "Đo thực tế: T_undo trung bình = ${String.format(Locale.US, "%.2f", report.tieredSwam.avgLatencyMs)} ms (Prefetch Hit = ${String.format(Locale.US, "%.0f%%", report.tieredSwam.prefetchHitRate)})",
-                    explanation = "Trên màn hình 120Hz của Pixel 8 Pro, mỗi khung hình có 8.33 ms. Ngay khi bạn bấm Undo 1 bước, Prefetcher lập tức chạy ngầm trên Dispatchers.IO để nạp trước K=5 bước cũ hơn từ đĩa COLD lên RAM nén WARM. Nhờ đó các lần bấm Undo kế tiếp đều đọc trực tiếp từ RAM (Warm Hit) với độ trễ chỉ vài mili-giây, áp dụng PorterDuff.Mode.SRC khôi phục chính xác 100% từng pixel!",
-                    accentColor = SkyBlue
                 )
             }
         }
@@ -551,9 +504,9 @@ private fun CapacityCompareBox(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = color.copy(alpha = 0.11f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.65f))
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFF14171D),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.55f))
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -563,30 +516,29 @@ private fun CapacityCompareBox(
                 text = badge,
                 color = color,
                 fontSize = 8.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
             Text(
                 text = modeTitle,
-                color = Color.White,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
+                color = Color(0xFFF3F4F6),
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = undoCountText,
                 color = color,
-                fontSize = 13.5.sp,
+                fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = detailText,
-                color = Color(0xFFCBD5E1),
+                color = Color(0xFF9CA3AF),
                 fontSize = 8.5.sp,
                 lineHeight = 12.sp,
                 textAlign = TextAlign.Center
@@ -602,7 +554,7 @@ private fun MetricBarRow(
     fraction: Float,
     color: Color
 ) {
-    val safeFrac = fraction.coerceIn(0.03f, 1.0f)
+    val safeFrac = fraction.coerceIn(0.01f, 1.0f)
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -611,39 +563,37 @@ private fun MetricBarRow(
         ) {
             Text(
                 text = label,
-                color = Color(0xFFE2E8F0),
+                color = Color(0xFFD1D5DB),
                 fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Normal,
                 modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = valueText,
                 color = color,
                 fontSize = 10.5.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold
+                fontWeight = FontWeight.SemiBold
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(9.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .background(Color(0xFF131D31))
+                .height(7.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF252A34))
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(safeFrac)
-                    .height(9.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(color.copy(alpha = 0.65f), color)
-                        )
-                    )
-            )
+            if (fraction > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(safeFrac)
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(color)
+                )
+            }
         }
     }
 }
@@ -657,52 +607,49 @@ private fun MathFormulaCard(
     accentColor: Color
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF111B2E),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFF14171D),
+        border = BorderStroke(1.dp, Color(0xFF282D37)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(11.dp)) {
             Text(
                 text = stepBadge,
                 color = accentColor,
-                fontSize = 9.5.sp,
+                fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = title,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                color = Color(0xFFF3F4F6),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(6.dp))
-            // Code/Equation box
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF070B14),
-                border = BorderStroke(1.dp, Color(0xFF1E2D46)),
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFF111317),
+                border = BorderStroke(1.dp, Color(0xFF22262F)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = formula,
-                    color = accentColor,
-                    fontSize = 10.5.sp,
+                    color = Color(0xFFE5E7EB),
+                    fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.padding(9.dp)
+                    lineHeight = 14.5.sp,
+                    modifier = Modifier.padding(8.dp)
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = explanation,
-                color = Color(0xFFCBD5E1),
-                fontSize = 11.sp,
-                lineHeight = 15.5.sp
+                color = Color(0xFF9CA3AF),
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp
             )
         }
     }
 }
-

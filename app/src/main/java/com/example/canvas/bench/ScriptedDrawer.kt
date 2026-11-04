@@ -17,12 +17,13 @@ class ScriptedDrawer(
     private val random = Random(seed)
 
     private val colorPalette = intArrayOf(
-        Color.BLACK,
-        Color.rgb(229, 57, 53),   // Red
-        Color.rgb(30, 136, 229),  // Blue
-        Color.rgb(67, 160, 71),   // Green
-        Color.rgb(255, 179, 0),   // Amber
-        Color.rgb(142, 36, 170)   // Purple
+        Color.rgb(15, 23, 42),    // Deep Slate Ink
+        Color.rgb(0, 184, 212),   // Cyber Cyan
+        Color.rgb(255, 64, 129),  // Vibrant Coral Rose
+        Color.rgb(124, 77, 255),  // Electric Indigo
+        Color.rgb(0, 200, 83),    // Radiant Emerald
+        Color.rgb(255, 145, 0),   // Warm Amber Gold
+        Color.rgb(41, 98, 255)    // Royal Cobalt Blue
     )
 
     /**
@@ -57,8 +58,6 @@ class ScriptedDrawer(
 
     private fun generateSmallStroke(color: Int): Stroke {
         // Small: changed area spans ~2% to 10% of canvas
-        // Canvas area = 2048 x 2048 = 4,194,304 px^2
-        // Target area: ~84,000 to ~419,000 px^2 -> width/height roughly 290 to 640
         val strokeWidth = 14f + random.nextFloat() * 10f // 14 to 24px
 
         val boxWidth = 300f + random.nextFloat() * 320f  // 300 to 620px
@@ -71,25 +70,20 @@ class ScriptedDrawer(
         val originY = random.nextFloat() * maxOriginY
 
         val stroke = Stroke(color = color, width = strokeWidth)
-
-        // Anchor start and end to corners of the box to guarantee bounded span
-        stroke.addPoint(originX, originY)
-
-        val intermediatePoints = 3 + random.nextInt(4)
-        for (i in 1..intermediatePoints) {
-            val px = originX + random.nextFloat() * boxWidth
-            val py = originY + random.nextFloat() * boxHeight
-            stroke.addPoint(px, py)
-        }
-
-        stroke.addPoint(originX + boxWidth, originY + boxHeight)
+        populateSmoothCalligraphicCurve(
+            stroke = stroke,
+            originX = originX,
+            originY = originY,
+            boxWidth = boxWidth,
+            boxHeight = boxHeight,
+            steps = 24
+        )
         return stroke
     }
 
     private fun generateLargeStroke(color: Int): Stroke {
         // Large: changed area spans ~40% to 100% of canvas
-        // Target area: ~1,680,000 to ~4,194,000 px^2 -> width/height roughly 1300 to 2048
-        val strokeWidth = 80f + random.nextFloat() * 80f // 80 to 160px
+        val strokeWidth = 42f + random.nextFloat() * 44f // Smooth ribbon brush 42 to 86px
 
         val boxWidth = 1350f + random.nextFloat() * (canvasWidth - 1350f)
         val boxHeight = 1350f + random.nextFloat() * (canvasHeight - 1350f)
@@ -101,18 +95,51 @@ class ScriptedDrawer(
         val originY = random.nextFloat() * maxOriginY
 
         val stroke = Stroke(color = color, width = strokeWidth)
+        populateSmoothCalligraphicCurve(
+            stroke = stroke,
+            originX = originX,
+            originY = originY,
+            boxWidth = boxWidth,
+            boxHeight = boxHeight,
+            steps = 36
+        )
+        return stroke
+    }
 
-        // Traverses across corners of the bounding area
-        stroke.addPoint(originX, originY)
+    /**
+     * Generates a silky-smooth calligraphic S-curve / Lissajous wave inside [originX..originX+boxWidth]
+     * and [originY..originY+boxHeight], anchored at the box corners so the exact bounding-box area
+     * ratio is preserved while looking like real digital artwork.
+     */
+    private fun populateSmoothCalligraphicCurve(
+        stroke: Stroke,
+        originX: Float,
+        originY: Float,
+        boxWidth: Float,
+        boxHeight: Float,
+        steps: Int
+    ) {
+        val flipDiagonal = random.nextBoolean()
+        val waves = 1.5 + random.nextDouble() * 1.5
+        val ampX = boxWidth * (0.22f + random.nextFloat() * 0.20f)
+        val ampY = boxHeight * (0.22f + random.nextFloat() * 0.20f)
 
-        val intermediatePoints = 8 + random.nextInt(8)
-        for (i in 1..intermediatePoints) {
-            val px = originX + random.nextFloat() * boxWidth
-            val py = originY + random.nextFloat() * boxHeight
+        for (i in 0..steps) {
+            val t = i.toFloat() / steps.toFloat()
+            val envelope = kotlin.math.sin(t * Math.PI).toFloat()
+            val osc = kotlin.math.sin(t * Math.PI * waves).toFloat()
+            val offset = envelope * osc
+
+            val baseX = originX + boxWidth * t
+            val baseY = if (flipDiagonal) {
+                originY + boxHeight * (1f - t)
+            } else {
+                originY + boxHeight * t
+            }
+
+            val px = (baseX + offset * ampX).coerceIn(originX, originX + boxWidth)
+            val py = (baseY - offset * ampY).coerceIn(originY, originY + boxHeight)
             stroke.addPoint(px, py)
         }
-
-        stroke.addPoint(originX + boxWidth, originY + boxHeight)
-        return stroke
     }
 }

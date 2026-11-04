@@ -34,6 +34,8 @@ class TieredHistory(
         fun create(
             context: Context,
             tierConfig: TierConfig = TierConfig(
+                hotBudgetBytes = 4L * 1024 * 1024, // 4 MiB Hot RAM (~4-8 recent patches)
+                warmBudgetBytes = 256L * 1024,     // 256 KiB Warm compressed RAM (~8-15 compressed patches)
                 infiniteUndo = true,
                 coldMaxSteps = Int.MAX_VALUE,
                 coldMaxBytes = 4L * 1024 * 1024 * 1024, // 4 GiB disk ceiling for Infinite Undo
@@ -208,6 +210,10 @@ class TieredHistory(
         scope.launch {
             tierPolicy.applyTrimMemory(level)
         }
+    }
+
+    suspend fun trimMemorySuspend(level: Int) = withContext(historyDispatcher) {
+        tierPolicy.applyTrimMemory(level)
     }
 
     suspend fun runOomCleaner(): Long = withContext(historyDispatcher) {

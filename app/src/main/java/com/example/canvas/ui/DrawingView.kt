@@ -9,6 +9,8 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -58,7 +60,7 @@ class DrawingView @JvmOverloads constructor(
     var historyManager: HistoryManager = NaiveHistory()
     var strokeColor: Int = Color.BLACK
     var strokeWidth: Float = 16f
-    var showDirtyRectOverlay: Boolean = false
+    var showDirtyRectOverlay: Boolean = true
     var showPaperGrid: Boolean = false
     var lastDirtyRect: Rect? = null
         private set
@@ -142,49 +144,83 @@ class DrawingView @JvmOverloads constructor(
 
     // Studio paints
     private val bgPaint = Paint().apply {
-        color = Color.parseColor("#080C14")
+        color = Color.parseColor("#14161A")
     }
 
     private val deskDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#182338")
+        color = Color.parseColor("#232730")
         style = Paint.Style.FILL
     }
 
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#04060B")
+        color = Color.parseColor("#08090C")
         style = Paint.Style.FILL
-        setShadowLayer(36f, 0f, 16f, Color.parseColor("#AA000000"))
+        setShadowLayer(28f, 0f, 12f, Color.parseColor("#99000000"))
     }
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3f
-        color = Color.parseColor("#334155")
+        strokeWidth = 2.5f
+        color = Color.parseColor("#2E333E")
     }
 
     private val paperGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2f
+        strokeWidth = 1.5f
         color = Color.parseColor("#180284C7")
     }
 
     private val paperMajorGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3f
+        strokeWidth = 2.5f
         color = Color.parseColor("#2A0284C7")
     }
 
     private val dirtyRectPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5f
-        color = Color.parseColor("#00E676")
-        pathEffect = DashPathEffect(floatArrayOf(18f, 12f), 0f)
+        strokeWidth = 3f
+        color = Color.parseColor("#3B82F6")
     }
 
     private val dirtyRectFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#1600E676")
+        color = Color.parseColor("#143B82F6")
     }
+
+    private val handleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+
+    private val handleStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.parseColor("#3B82F6")
+    }
+
+    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#EA181B21")
+    }
+
+    private val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+
+    private val badgeTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 27f
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    }
+
+    private val badgeSubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#D1D5DB")
+        textSize = 23f
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+    }
+
+    private val badgeRectF = RectF()
 
     init {
         backingCanvas.drawColor(Color.WHITE)
@@ -202,7 +238,7 @@ class DrawingView @JvmOverloads constructor(
 
     private fun updateTransform(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
-        val paddingPx = 28f * resources.displayMetrics.density
+        val paddingPx = 10f * resources.displayMetrics.density
         val availW = (viewWidth - paddingPx * 2f).coerceAtLeast(100f)
         val availH = (viewHeight - paddingPx * 2f).coerceAtLeast(100f)
         baseScale = min(availW / CANVAS_SIZE, availH / CANVAS_SIZE)
@@ -523,26 +559,37 @@ class DrawingView @JvmOverloads constructor(
             }
         }
 
-        // Draw live stroke preview directly on screen
-        liveStroke?.let { stroke ->
-            strokeRenderer.renderStroke(canvas, stroke)
+        val modeAccentColor = when (historyManager.mode) {
+            HistoryMode.NAIVE -> Color.parseColor("#F06272")
+            HistoryMode.DIRTY_RECT -> Color.parseColor("#F59E0B")
+            HistoryMode.TIERED -> Color.parseColor("#4F8EF7")
         }
 
-        // Draw Dirty-Rect bounding box overlay if enabled
+        // Draw live stroke preview with brush cursor ring
+        val currentLive = liveStroke
+        if (currentLive != null) {
+            strokeRenderer.renderLiveStroke(canvas, currentLive, modeAccentColor)
+        }
+
+        // Draw Figma-style Bounding Box Selection Overlay
         if (showDirtyRectOverlay) {
-            lastDirtyRect?.let { r ->
-                dirtyRectPaint.color = when (historyManager.mode) {
-                    HistoryMode.NAIVE -> Color.parseColor("#FF5252")
-                    HistoryMode.DIRTY_RECT -> Color.parseColor("#FFB300")
-                    HistoryMode.TIERED -> Color.parseColor("#00E676")
+            val activeRect: Rect? = if (currentLive != null && currentLive.points.isNotEmpty()) {
+                if (historyManager.mode == HistoryMode.NAIVE) {
+                    Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+                } else {
+                    currentLive.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
                 }
-                dirtyRectFillPaint.color = when (historyManager.mode) {
-                    HistoryMode.NAIVE -> Color.parseColor("#14FF5252")
-                    HistoryMode.DIRTY_RECT -> Color.parseColor("#14FFB300")
-                    HistoryMode.TIERED -> Color.parseColor("#1400E676")
-                }
-                canvas.drawRect(r, dirtyRectFillPaint)
-                canvas.drawRect(r, dirtyRectPaint)
+            } else {
+                lastDirtyRect
+            }
+
+            if (activeRect != null) {
+                drawCyberBoundingBoxOverlay(
+                    canvas = canvas,
+                    rect = activeRect,
+                    isLiveScanning = currentLive != null,
+                    accentColor = modeAccentColor
+                )
             }
         }
 
@@ -550,5 +597,88 @@ class DrawingView @JvmOverloads constructor(
         canvas.drawRect(0f, 0f, CANVAS_SIZE.toFloat(), CANVAS_SIZE.toFloat(), borderPaint)
 
         canvas.restore()
+    }
+
+    /**
+     * Renders a clean Figma/Studio-style selection bounding box with:
+     * - Subtle translucent selection fill & crisp 3px stroke
+     * - 4 square white-filled corner selection handles (14x14 px)
+     * - Compact dimension & exact byte size pill tag above the bounding box
+     */
+    private fun drawCyberBoundingBoxOverlay(
+        canvas: Canvas,
+        rect: Rect,
+        isLiveScanning: Boolean,
+        accentColor: Int
+    ) {
+        val left = rect.left.toFloat()
+        val top = rect.top.toFloat()
+        val right = rect.right.toFloat()
+        val bottom = rect.bottom.toFloat()
+        val boxW = rect.width().coerceAtLeast(1)
+        val boxH = rect.height().coerceAtLeast(1)
+
+        dirtyRectPaint.color = accentColor
+        dirtyRectFillPaint.color = accentColor
+        dirtyRectFillPaint.alpha = if (isLiveScanning) 26 else 16
+        handleStrokePaint.color = accentColor
+
+        // 1. Subtle selection fill + crisp selection frame
+        canvas.drawRect(left, top, right, bottom, dirtyRectFillPaint)
+        canvas.drawRect(left, top, right, bottom, dirtyRectPaint)
+
+        // 2. 4 Figma-style square corner handles (14x14 px)
+        val hs = 7f
+        val corners = arrayOf(
+            floatArrayOf(left, top),
+            floatArrayOf(right, top),
+            floatArrayOf(left, bottom),
+            floatArrayOf(right, bottom)
+        )
+        for (c in corners) {
+            val cx = c[0]
+            val cy = c[1]
+            canvas.drawRect(cx - hs, cy - hs, cx + hs, cy + hs, handleFillPaint)
+            canvas.drawRect(cx - hs, cy - hs, cx + hs, cy + hs, handleStrokePaint)
+        }
+
+        // 3. Compact measured dimension & raw KB tag pill
+        val rawBytes = boxW.toLong() * boxH.toLong() * 4L
+        val rawKb = rawBytes.toDouble() / 1024.0
+        val fullCanvasBytes = CANVAS_SIZE.toLong() * CANVAS_SIZE.toLong() * 4L
+        val areaReductionPct = (1.0 - rawBytes.toDouble() / fullCanvasBytes.toDouble()) * 100.0
+
+        val stateLabel = if (isLiveScanning) "Đang quét" else "Đã lưu"
+        val line1 = "$stateLabel [${historyManager.mode.name}]  •  ${boxW} × ${boxH} px"
+        val line2 = if (historyManager.mode == HistoryMode.NAIVE) {
+            String.format(java.util.Locale.US, "Bản sao: %.1f KB (Toàn bộ 2048×2048)", rawKb)
+        } else {
+            String.format(
+                java.util.Locale.US,
+                "Vùng chọn: %.1f KB (Giảm %.1f%% diện tích so với 16 MB)",
+                rawKb,
+                areaReductionPct
+            )
+        }
+
+        badgeTitlePaint.color = accentColor
+        val textW = kotlin.math.max(badgeTitlePaint.measureText(line1), badgeSubPaint.measureText(line2))
+        val pillW = textW + 36f
+        val pillH = 74f
+
+        val pillLeft = left.coerceIn(12f, (CANVAS_SIZE - pillW - 12f).coerceAtLeast(12f))
+        val pillTop = if (top - pillH - 10f >= 12f) {
+            top - pillH - 10f
+        } else {
+            (top + 10f).coerceAtMost(CANVAS_SIZE - pillH - 12f)
+        }
+
+        badgeRectF.set(pillLeft, pillTop, pillLeft + pillW, pillTop + pillH)
+        badgeBorderPaint.color = accentColor
+        canvas.drawRoundRect(badgeRectF, 12f, 12f, badgeBgPaint)
+        canvas.drawRoundRect(badgeRectF, 12f, 12f, badgeBorderPaint)
+
+        canvas.drawText(line1, pillLeft + 18f, pillTop + 32f, badgeTitlePaint)
+        canvas.drawText(line2, pillLeft + 18f, pillTop + 60f, badgeSubPaint)
     }
 }

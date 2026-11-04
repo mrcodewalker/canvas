@@ -29,6 +29,9 @@ data class TierConfig(
     val coldMaxBytes: Long = 500L * 1024 * 1024,
     val coldMaxSteps: Int = 1000,
     val compressionLevel: Int = 1,
+    val adaptiveCompEnabled: Boolean = true,
+    val coldCompressionLevel: Int = 9,
+    val adaptiveCompBlockSize: Int = 4,
     val infiniteUndo: Boolean = false,
     val evictionStrategy: SwamEvictionStrategy = SwamEvictionStrategy.FIFO
 )
@@ -52,9 +55,13 @@ class TierPolicy(
     var deduplicatedPatches: Int = 0
         private set
 
+    var adaptiveCompSavedBytes: Long = 0L
+        private set
+
     fun resetSwamMetrics() {
         oomCleanerReclaimedBytes = 0L
         deduplicatedPatches = 0
+        adaptiveCompSavedBytes = 0L
     }
 
     /**
@@ -213,17 +220,44 @@ class TierPolicy(
     /**
      * Demotes a patch from WARM to COLD:
      * - State transitions: WARM -> WRITING -> COLD.
+     * - Ariadne AdaptiveComp (HPCA 2025, arXiv:2502.12826): Warm uses fast Level-1 compression for
+     *   low-latency restore in RAM, while Cold re-compresses with higher density (e.g. Level 9)
+     *   when [TierConfig.adaptiveCompEnabled] is active.
      * - Compressed bytes remain in RAM until atomic file write completes.
      */
     suspend fun demoteWarmToCold(patch: Patch) {
-        val bytes = patch.compressedBytes ?: ByteArray(0)
+        val warmBytes = patch.compressedBytes ?: ByteArray(0)
         patch.state = PatchState.WRITING
 
         // Remove from WarmStore using existing Warm sizeBytes
         warmStore.remove(patch)
 
+        val coldPayloadBytes = if (
+            config.adaptiveCompEnabled &&
+            config.coldCompressionLevel > config.compressionLevel &&
+            warmBytes.isNotEmpty() &&
+            patch.rawLength > 0
+        ) {
+            withContext(Dispatchers.Default) {
+                try {
+                    val raw = PatchCodec.decompress(warmBytes, patch.rawLength, patch.crc32)
+                    val recompressed = PatchCodec.compress(raw, config.coldCompressionLevel)
+                    if (recompressed.compressedBytes.size < warmBytes.size) {
+                        adaptiveCompSavedBytes += (warmBytes.size - recompressed.compressedBytes.size).toLong()
+                        recompressed.compressedBytes
+                    } else {
+                        warmBytes
+                    }
+                } catch (_: Throwable) {
+                    warmBytes
+                }
+            }
+        } else {
+            warmBytes
+        }
+
         val file = withContext(Dispatchers.IO) {
-            coldStore.writeToFile(patch, bytes)
+            coldStore.writeToFile(patch, coldPayloadBytes)
         }
 
         patch.filePath = file.absolutePath

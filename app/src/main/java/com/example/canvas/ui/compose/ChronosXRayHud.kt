@@ -1,11 +1,6 @@
 package com.example.canvas.ui.compose
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -33,11 +28,9 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,91 +74,61 @@ fun ChronosXRayHud(
         HistoryMode.TIERED -> EmeraldGreen
     }
 
-    val pulseTransition = rememberInfiniteTransition(label = "radarPulse")
-    val pulseAlpha by pulseTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
-
-    Surface(
+    AuroraGlassCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = Color(0xEB080E1A),
-        border = BorderStroke(1.dp, Color(0xFF23344E)),
-        shadowElevation = 12.dp
+        cornerRadius = 12.dp,
+        accentColors = listOf(modeColor, NeonCyan, ElectricIndigo),
+        containerColor = Color(0xF2181B21)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            // Top Row: Live Indicator + Title + Mode Pill + Infinite Undo Badge + Controls
+            // Top Row: Live Status Dot + Title + Mode Pill + Controls
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(7.dp)
                         .clip(CircleShape)
-                        .background(RadiantMint.copy(alpha = pulseAlpha))
+                        .background(EmeraldGreen)
                 )
                 Spacer(modifier = Modifier.width(7.dp))
                 Text(
-                    text = "SWAM X-RAY",
-                    color = SkyBlue,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 0.6.sp
+                    text = "Bộ nhớ thời gian thực",
+                    color = Color(0xFFF3F4F6),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Mode Badge
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = modeColor.copy(alpha = 0.14f),
-                    border = BorderStroke(1.dp, modeColor.copy(alpha = 0.7f)),
+                    border = BorderStroke(1.dp, modeColor.copy(alpha = 0.55f)),
                     modifier = Modifier.clickable { onOpenSwamSheet() }
                 ) {
                     Text(
                         text = mode.name,
                         color = modeColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = 9.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
-                }
-
-                if (mode == HistoryMode.TIERED && telemetry.infiniteUndoEnabled) {
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = NeonCyan.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.6f)),
-                        modifier = Modifier.clickable { onOpenSwamSheet() }
-                    ) {
-                        Text(
-                            text = "∞ UNDO",
-                            color = NeonCyan,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                        )
-                    }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
                 // Minimize / Expand pill button
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF152033),
-                    border = BorderStroke(1.dp, Color(0xFF2B3E5E)),
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF22262F),
+                    border = BorderStroke(1.dp, Color(0xFF2E333E)),
                     modifier = Modifier.clickable { onToggleMinimize() }
                 ) {
                     Row(
@@ -174,16 +137,16 @@ fun ChronosXRayHud(
                     ) {
                         Icon(
                             imageVector = if (isMinimized) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                            contentDescription = "Thu gọn / Mở rộng",
-                            tint = Color(0xFFCBD5E1),
+                            contentDescription = "Thu gọn hoặc mở rộng",
+                            tint = Color(0xFFD1D5DB),
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = if (isMinimized) "Mở rộng" else "Thu gọn",
-                            color = Color(0xFFCBD5E1),
+                            text = if (isMinimized) "Chi tiết" else "Thu gọn",
+                            color = Color(0xFFD1D5DB),
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -194,21 +157,21 @@ fun ChronosXRayHud(
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF2A131B))
-                        .border(1.dp, Color(0xFF6E2035), RoundedCornerShape(6.dp))
+                        .background(Color(0xFF22262F))
+                        .border(1.dp, Color(0xFF2E333E), RoundedCornerShape(6.dp))
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Đóng X-Ray",
-                        tint = Color(0xFFF87171),
-                        modifier = Modifier.size(14.dp)
+                        contentDescription = "Đóng bảng thống kê",
+                        tint = Color(0xFF9CA3AF),
+                        modifier = Modifier.size(13.dp)
                     )
                 }
             }
 
-            // Minimized Quick Bar
+            // Minimized Quick Summary Bar
             if (isMinimized) {
                 Spacer(modifier = Modifier.height(5.dp))
                 val totalRam = telemetry.currentJavaHeapMb + telemetry.currentNativeHeapMb
@@ -220,31 +183,32 @@ fun ChronosXRayHud(
                     Text(
                         text = String.format(
                             Locale.US,
-                            "RAM %.1fM (Đỉnh %.1fM) • 🔥%.1fM ⚡%.1fM ❄️%.1fM",
+                            "Heap %.1f MB (Đỉnh %.1f MB)  •  Hot %.2fM  Warm %.2fM  Cold %.2fM",
                             totalRam,
                             telemetry.peakHeapMb,
                             telemetry.hotMb,
                             telemetry.warmMb,
                             telemetry.coldMb
                         ),
-                        color = Color(0xFFE2E8F0),
-                        fontSize = 10.sp,
+                        color = Color(0xFFD1D5DB),
+                        fontSize = 9.5.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "${telemetry.totalSteps} bước",
-                        color = NeonCyan,
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        color = SkyBlue,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
 
-            // Expanded Full Telemetry HUD
+            // Expanded Memory Profiler View
             AnimatedVisibility(
                 visible = !isMinimized,
                 enter = expandVertically() + fadeIn(),
@@ -254,163 +218,95 @@ fun ChronosXRayHud(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     val capacityMb = max(
-                        1f,
-                        max(telemetry.hotMb + telemetry.warmMb + telemetry.coldMb, telemetry.peakHeapMb)
+                        8f,
+                        max(telemetry.hotMb + telemetry.warmMb + telemetry.coldMb, 4f)
                     )
 
-                    // 1. HOT TIER GAUGE
-                    SwamTierGaugeRow(
-                        label = "🔥 HOT (RAM Bitmap • O(1))",
-                        valueText = String.format(Locale.US, "%.2f MB (%d bước)", telemetry.hotMb, telemetry.hotSteps),
-                        fraction = (telemetry.hotMb / capacityMb).coerceIn(0f, 1f),
-                        gradientColors = listOf(Color(0xFFFF416C), Color(0xFFFF4B2B)),
-                        accentColor = CoralRose
-                    )
-                    Spacer(modifier = Modifier.height(5.dp))
-
-                    // 2. WARM TIER GAUGE
-                    val compTag = if (telemetry.compressionRatio > 1.05f) {
-                        String.format(Locale.US, " • Nén %.1fx", telemetry.compressionRatio)
-                    } else ""
-                    SwamTierGaugeRow(
-                        label = "⚡ WARM (zRAM Deflate$compTag)",
-                        valueText = String.format(Locale.US, "%.2f MB (%d bước)", telemetry.warmMb, telemetry.warmSteps),
-                        fraction = (telemetry.warmMb / capacityMb).coerceIn(0f, 1f),
-                        gradientColors = listOf(Color(0xFFF7971E), Color(0xFFFFD200)),
-                        accentColor = AmberGold
-                    )
-                    Spacer(modifier = Modifier.height(5.dp))
-
-                    // 3. COLD TIER GAUGE
-                    SwamTierGaugeRow(
-                        label = "❄️ COLD (Flash Swap .chrf • ∞ Disk)",
-                        valueText = String.format(Locale.US, "%.2f MB (%d bước)", telemetry.coldMb, telemetry.coldSteps),
-                        fraction = (telemetry.coldMb / capacityMb).coerceIn(0f, 1f),
-                        gradientColors = listOf(Color(0xFF00C6FF), Color(0xFF0072FF)),
-                        accentColor = NeonCyan
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 4. 60-Second Real-Time Oscilloscope Chart
-                    RamOscilloscopeCanvas(
-                        points = points,
-                        peakHeapMb = telemetry.peakHeapMb,
-                        currentJavaMb = telemetry.currentJavaHeapMb,
-                        currentNativeMb = telemetry.currentNativeHeapMb,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 5. Responsive 2x2 Bento Grid for Telemetry Stat Cards
-                    Column(
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            TelemetryMicroCard(
-                                title = "LỊCH SỬ HOÀN TÁC (STEPS)",
-                                value = "${telemetry.totalSteps} bước (${telemetry.redoSteps} redo)",
-                                valueColor = Color.White,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TelemetryMicroCard(
-                                title = "HIỆU QUẢ BỘ NHỚ VS NAIVE",
-                                value = if (telemetry.totalSteps > 0) {
-                                    String.format(Locale.US, "Tiết kiệm %.1f%% RAM", telemetry.ramSavedVsNaivePercent)
-                                } else "0.0% (Chưa vẽ)",
-                                valueColor = RadiantMint,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            TelemetryMicroCard(
-                                title = "PREFETCH HIT / ART GC",
-                                value = String.format(Locale.US, "Hit %.0f%%  •  +%d lần GC", telemetry.prefetchHitRate, telemetry.gcDelta),
-                                valueColor = SkyBlue,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TelemetryMicroCard(
-                                title = "SWAM OOM CLEANER",
-                                value = if (telemetry.deduplicatedPatches > 0) {
-                                    String.format(Locale.US, "Gộp %d patch (%d KB)", telemetry.deduplicatedPatches, telemetry.oomCleanerReclaimedKb.toInt())
-                                } else "Sẵn sàng khử trùng lặp",
-                                valueColor = AmberGold,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        NeonArcGauge(
+                            title = "Hot (RAM)",
+                            valueText = String.format(Locale.US, "%.2fM", telemetry.hotMb),
+                            subText = "${telemetry.hotSteps} bước",
+                            fraction = (telemetry.hotMb / capacityMb).coerceIn(0f, 1f),
+                            primaryColor = CoralRose,
+                            secondaryColor = CoralRose,
+                            sizeDp = 56.dp
+                        )
+
+                        val compLabel = if (telemetry.compressionRatio > 1.05f) {
+                            String.format(Locale.US, "%.1fx", telemetry.compressionRatio)
+                        } else "${telemetry.warmSteps} bước"
+                        NeonArcGauge(
+                            title = "Warm (Nén)",
+                            valueText = String.format(Locale.US, "%.2fM", telemetry.warmMb),
+                            subText = compLabel,
+                            fraction = (telemetry.warmMb / capacityMb).coerceIn(0f, 1f),
+                            primaryColor = AmberGold,
+                            secondaryColor = AmberGold,
+                            sizeDp = 56.dp
+                        )
+
+                        NeonArcGauge(
+                            title = "Cold (Flash)",
+                            valueText = String.format(Locale.US, "%.2fM", telemetry.coldMb),
+                            subText = "${telemetry.coldSteps} tệp",
+                            fraction = (telemetry.coldMb / capacityMb).coerceIn(0f, 1f),
+                            primaryColor = SkyBlue,
+                            secondaryColor = SkyBlue,
+                            sizeDp = 56.dp
+                        )
+
+                        RamOscilloscopeCanvas(
+                            points = points,
+                            peakHeapMb = telemetry.peakHeapMb,
+                            currentJavaMb = telemetry.currentJavaHeapMb,
+                            currentNativeMb = telemetry.currentNativeHeapMb,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        TelemetryMicroCard(
+                            title = "Số bước lưu",
+                            value = "${telemetry.totalSteps} (${telemetry.redoSteps} redo)",
+                            valueColor = Color(0xFFF3F4F6),
+                            modifier = Modifier.weight(1f)
+                        )
+                        TelemetryMicroCard(
+                            title = "So với Naive",
+                            value = if (telemetry.totalSteps > 0) {
+                                String.format(Locale.US, "-%.1f%% RAM", telemetry.ramSavedVsNaivePercent)
+                            } else "0.0% RAM",
+                            valueColor = RadiantMint,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TelemetryMicroCard(
+                            title = "Prefetch / GC",
+                            value = String.format(Locale.US, "Hit %.0f%% • %d GC", telemetry.prefetchHitRate, telemetry.gcDelta),
+                            valueColor = SkyBlue,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TelemetryMicroCard(
+                            title = "Khử trùng lặp",
+                            value = if (telemetry.deduplicatedPatches > 0) {
+                                String.format(Locale.US, "%d bản (%d KB)", telemetry.deduplicatedPatches, telemetry.oomCleanerReclaimedKb.toInt())
+                            } else "0 bản (0 KB)",
+                            valueColor = AmberGold,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SwamTierGaugeRow(
-    label: String,
-    valueText: String,
-    fraction: Float,
-    gradientColors: List<Color>,
-    accentColor: Color
-) {
-    val pct = (fraction * 100f).toInt().coerceIn(0, 100)
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                color = Color(0xFFF1F5F9),
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = valueText,
-                    color = Color(0xFFCBD5E1),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "[$pct%]",
-                    color = accentColor,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(3.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF131C2E))
-                .border(0.8.dp, Color(0xFF22304A), RoundedCornerShape(4.dp))
-        ) {
-            if (fraction > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction.coerceAtLeast(0.02f))
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Brush.horizontalGradient(gradientColors))
-                )
             }
         }
     }
@@ -426,17 +322,16 @@ private fun RamOscilloscopeCanvas(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF050811))
-            .border(1.dp, Color(0xFF1B273D), RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF111317))
+            .border(1.dp, Color(0xFF282D37), RoundedCornerShape(8.dp))
     ) {
         Canvas(modifier = Modifier.matchParentSize()) {
             val w = size.width
             val h = size.height
             if (w <= 0f || h <= 0f) return@Canvas
 
-            // Draw subtle oscilloscope grid
-            val gridColor = Color(0xFF141E30)
+            val gridColor = Color(0xFF1E222B)
             for (i in 1..2) {
                 val y = h * (i / 3f)
                 drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1.dp.toPx())
@@ -493,20 +388,20 @@ private fun RamOscilloscopeCanvas(
                     path = fillPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color(0x4400E5FF),
-                            Color(0x0500E5FF)
+                            Color(0x284F8EF7),
+                            Color(0x044F8EF7)
                         )
                     )
                 )
                 drawPath(
                     path = pathJava,
                     color = RadiantMint,
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
                 )
                 drawPath(
                     path = pathNative,
-                    color = ElectricIndigo,
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                    color = SkyBlue,
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
         }
@@ -515,36 +410,36 @@ private fun RamOscilloscopeCanvas(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 6.dp, vertical = 3.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = String.format(
                     Locale.US,
-                    "▲ Đỉnh: %.1f MB (Java %.1fM + Native %.1fM)",
+                    "Đỉnh %.1fM (J %.1f + N %.1f)",
                     peakHeapMb,
                     currentJavaMb,
                     currentNativeMb
                 ),
-                color = SkyBlue,
-                fontSize = 9.5.sp,
+                color = Color(0xFFD1D5DB),
+                fontSize = 8.5.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Medium
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "● Java",
+                    text = "Java",
                     color = RadiantMint,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "● Native (Bitmap)",
-                    color = ElectricIndigo,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    text = "Native",
+                    color = SkyBlue,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -554,12 +449,12 @@ private fun RamOscilloscopeCanvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 8.dp, vertical = 2.dp),
+                .padding(horizontal = 6.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = "-60s", color = Color(0xFF64748B), fontSize = 8.5.sp)
-            Text(text = "-30s", color = Color(0xFF64748B), fontSize = 8.5.sp)
-            Text(text = "Live (250ms)", color = NeonCyan, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+            Text(text = "-60s", color = Color(0xFF6B7280), fontSize = 8.sp)
+            Text(text = "-30s", color = Color(0xFF6B7280), fontSize = 8.sp)
+            Text(text = "Hiện tại", color = Color(0xFF9CA3AF), fontSize = 8.sp)
         }
     }
 }
@@ -574,17 +469,17 @@ private fun TelemetryMicroCard(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF101829),
-        border = BorderStroke(1.dp, Color(0xFF1E2D46))
+        color = Color(0xFF14171D),
+        border = BorderStroke(1.dp, Color(0xFF282D37))
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
         ) {
             Text(
                 text = title,
-                color = Color(0xFF64748B),
-                fontSize = 8.sp,
-                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF9CA3AF),
+                fontSize = 8.5.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
             Spacer(modifier = Modifier.height(1.dp))
@@ -593,10 +488,9 @@ private fun TelemetryMicroCard(
                 color = valueColor,
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
         }
     }
 }
-

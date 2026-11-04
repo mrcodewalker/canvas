@@ -39,7 +39,10 @@ class BenchmarkRunner(
         val sampler = MemorySampler(
             historyManager = historyManager,
             intervalMs = config.sampleIntervalMs,
-            onSample = { collector.recordSample(it) }
+            onSample = {
+                collector.recordSample(it)
+                collector.recordHistoryStats(historyManager.stats())
+            }
         )
 
         val drawer = ScriptedDrawer(
@@ -141,6 +144,7 @@ class BenchmarkRunner(
             sampler.stop()
             // Sample final state before freeing benchmark bitmaps
             collector.recordSample(sampler.captureSnapshot())
+            collector.recordHistoryStats(historyManager.stats())
             historyManager.clear()
             backingBitmap.recycle()
             System.gc()

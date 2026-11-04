@@ -1,5 +1,6 @@
 package com.example.canvas.metrics
 
+import com.example.canvas.history.HistoryStats
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.max
 
@@ -38,6 +39,30 @@ class MetricsCollector {
 
     var errorMessage: String? = null
         private set
+
+    var peakStatsSnapshot: HistoryStats = HistoryStats()
+        private set
+
+    var finalStatsSnapshot: HistoryStats = HistoryStats()
+        private set
+
+    fun recordHistoryStats(stats: HistoryStats) {
+        finalStatsSnapshot = stats
+        val currentTotal = stats.hotBytes + stats.warmBytes + stats.coldBytes
+        val prevTotal = peakStatsSnapshot.hotBytes + peakStatsSnapshot.warmBytes + peakStatsSnapshot.coldBytes
+        if (currentTotal >= prevTotal || stats.totalSteps >= peakStatsSnapshot.totalSteps) {
+            peakStatsSnapshot = stats
+        }
+    }
+
+    val peakHotBytes: Long
+        get() = max(samples.maxOfOrNull { it.hotBytes } ?: 0L, peakStatsSnapshot.hotBytes)
+
+    val peakWarmBytes: Long
+        get() = max(samples.maxOfOrNull { it.warmBytes } ?: 0L, peakStatsSnapshot.warmBytes)
+
+    val peakColdBytes: Long
+        get() = max(samples.maxOfOrNull { it.coldBytes } ?: 0L, peakStatsSnapshot.coldBytes)
 
     fun start() {
         samples.clear()

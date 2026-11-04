@@ -13,18 +13,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val CyberObsidian = Color(0xFF060A12)
-val CyberSurface = Color(0xFF0E1525)
-val CyberSurfaceVariant = Color(0xFF172238)
-val CyberCardBorder = Color(0xFF263654)
+// Refined Human-Crafted Graphite & Slate Studio Palette (Figma / Android Studio Profiler style)
+val CyberObsidian = Color(0xFF111317)
+val CyberSurface = Color(0xFF181B21)
+val CyberSurfaceVariant = Color(0xFF22262F)
+val CyberCardBorder = Color(0xFF2E333E)
 
-val NeonCyan = Color(0xFF00E5FF)
-val SkyBlue = Color(0xFF38BDF8)
-val ElectricIndigo = Color(0xFF818CF8)
-val EmeraldGreen = Color(0xFF10B981)
-val RadiantMint = Color(0xFF00E676)
-val AmberGold = Color(0xFFF59E0B)
-val CoralRose = Color(0xFFF43F5E)
+val NeonCyan = Color(0xFF4F8EF7)       // Clean Material Blue
+val SkyBlue = Color(0xFF38BDF8)        // Cold Tier Steel Blue
+val ElectricIndigo = Color(0xFF818CF8) // Muted Slate Indigo
+val EmeraldGreen = Color(0xFF22C55E)   // Clean Emerald
+val RadiantMint = Color(0xFF10B981)    // Clean Sage Green
+val AmberGold = Color(0xFFF59E0B)      // Warm Tier Amber
+val CoralRose = Color(0xFFEF4444)      // Hot Tier / Alert Coral Red
 
 private val ChronosDarkColorScheme = darkColorScheme(
     primary = NeonCyan,

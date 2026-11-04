@@ -33,7 +33,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -49,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -75,8 +73,6 @@ import com.example.canvas.ui.theme.ChronosCanvasTheme
 import com.example.canvas.ui.theme.CoralRose
 import com.example.canvas.ui.theme.CyberObsidian
 import com.example.canvas.ui.theme.CyberSurface
-import com.example.canvas.ui.theme.EmeraldGreen
-import com.example.canvas.ui.theme.NeonCyan
 import com.example.canvas.ui.theme.RadiantMint
 import com.example.canvas.ui.theme.SkyBlue
 import kotlinx.coroutines.Dispatchers
@@ -91,7 +87,15 @@ data class ModeComparisonEntry(
     val completedSteps: Int,
     val peakRamMb: Double,
     val peakNativeMb: Double,
+    val hotMb: Double,
+    val warmMb: Double,
+    val coldMb: Double,
+    val avgStepSizeKb: Double,
+    val compressionRatio: Double,
+    val prefetchHitRate: Double,
+    val oomCleanerSavedKb: Double,
     val gcDelta: Long,
+    val avgLatencyMs: Double,
     val p50Ms: Double,
     val p95Ms: Double,
     val durationMs: Long
@@ -109,7 +113,7 @@ class BenchmarkActivity : ComponentActivity() {
     private var progressCurrent by mutableIntStateOf(0)
     private var progressTotal by mutableIntStateOf(100)
     private var progressLabel by mutableStateOf("Sẵn sàng chạy thực nghiệm E1–E6")
-    private var reportText by mutableStateOf("Chọn kịch bản E1–E6 bên trên và nhấn 'Chạy Thực Nghiệm' hoặc 'So Sánh Cả 3 Chế Độ'.")
+    private var reportText by mutableStateOf("Chọn kịch bản E1–E6 bên trên và nhấn 'Chạy thực nghiệm' hoặc 'So sánh 3 chế độ'.")
     private var comparisonEntries by mutableStateOf<List<ModeComparisonEntry>>(emptyList())
     private var mathReport by mutableStateOf<SwamComparisonReport?>(null)
 
@@ -151,6 +155,7 @@ class BenchmarkActivity : ComponentActivity() {
         isRunning = true
         progressCurrent = 0
         progressTotal = steps
+        mathReport = null
 
         val historyManager = createHistoryManager(selectedMode)
         progressLabel = "Đang chạy ${selectedScenario.name} trên chế độ ${selectedMode.name}..."
@@ -173,7 +178,6 @@ class BenchmarkActivity : ComponentActivity() {
             reportText = buildFormattedReport(collector, config, selectedMode)
             val entry = toComparisonEntry(selectedMode, collector)
             comparisonEntries = listOf(entry)
-            mathReport = buildMathReportFromEntries(comparisonEntries)
             isRunning = false
             progressLabel = "Hoàn tất (${collector.status.name})"
         }
@@ -191,6 +195,7 @@ class BenchmarkActivity : ComponentActivity() {
 
         isRunning = true
         comparisonEntries = emptyList()
+        mathReport = null
         val results = mutableListOf<ModeComparisonEntry>()
         val combinedLog = StringBuilder()
 
@@ -221,33 +226,30 @@ class BenchmarkActivity : ComponentActivity() {
             reportText = combinedLog.toString().trim()
             mathReport = buildMathReportFromEntries(results)
             isRunning = false
-            progressLabel = "Đã hoàn tất so sánh cả 3 chế độ (Naive vs DirtyRect vs Tiered SWAM)!"
+            progressLabel = "Đã hoàn tất so sánh thực nghiệm 3 chế độ (Naive · Dirty Rect · Tiered)"
         }
     }
 
-    private fun buildMathReportFromEntries(entries: List<ModeComparisonEntry>): SwamComparisonReport {
-        val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024 * 1024)).toInt().coerceAtLeast(128)
-        val availHeapMb = (maxHeapMb * 0.65).toInt().coerceAtLeast(96)
+    private fun buildMathReportFromEntries(entries: List<ModeComparisonEntry>): SwamComparisonReport? {
+        val naiveEntry = entries.find { it.mode == HistoryMode.NAIVE } ?: return null
+        val dirtyEntry = entries.find { it.mode == HistoryMode.DIRTY_RECT } ?: return null
+        val tieredEntry = entries.find { it.mode == HistoryMode.TIERED } ?: return null
+
+        val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024 * 1024)).toInt()
+        val availHeapMb = (maxHeapMb * 0.65).toInt()
         val coldBudgetMb = 500
 
-        val naiveEntry = entries.find { it.mode == HistoryMode.NAIVE }
-        val dirtyEntry = entries.find { it.mode == HistoryMode.DIRTY_RECT }
-        val tieredEntry = entries.find { it.mode == HistoryMode.TIERED }
+        val naiveStepKb = if (naiveEntry.avgStepSizeKb > 0.0) naiveEntry.avgStepSizeKb else 16384.0
+        val naiveMaxCap = if (naiveStepKb > 0.0) ((availHeapMb * 1024.0) / naiveStepKb).toInt() else 0
 
-        val naiveSteps = naiveEntry?.completedSteps ?: 10
-        val naivePeakMb = naiveEntry?.peakRamMb ?: (naiveSteps * 16.0)
-        val naiveMaxCap = (availHeapMb / 16).coerceAtLeast(8)
+        val dirtyStepKb = dirtyEntry.avgStepSizeKb
+        val dirtyMaxCap = if (dirtyStepKb > 0.0) ((availHeapMb * 1024.0) / dirtyStepKb).toInt() else 0
 
-        val dirtySteps = dirtyEntry?.completedSteps ?: 30
-        val dirtyPeakMb = dirtyEntry?.peakRamMb ?: 36.0
-        val dirtyStepKb = ((dirtyPeakMb * 1024.0) / dirtySteps.coerceAtLeast(1)).coerceIn(400.0, 4096.0)
-        val dirtyMaxCap = ((availHeapMb * 1024.0) / dirtyStepKb).toInt().coerceAtLeast(dirtySteps)
-
-        val tieredSteps = tieredEntry?.completedSteps ?: 60
-        val tieredPeakMb = tieredEntry?.peakRamMb ?: 24.0
-        val tieredStepKb = 38.0
-        val swamRamCap = ((availHeapMb * 1024.0) / tieredStepKb).toInt()
-        val swamTotalCap = swamRamCap + ((coldBudgetMb * 1024.0) / tieredStepKb).toInt()
+        val tieredStepKb = tieredEntry.avgStepSizeKb
+        val swamRamCap = if (tieredStepKb > 0.0) ((availHeapMb * 1024.0) / tieredStepKb).toInt() else 0
+        val swamTotalCap = if (tieredStepKb > 0.0) {
+            swamRamCap + ((coldBudgetMb * 1024.0) / tieredStepKb).toInt()
+        } else 0
 
         return SwamComparisonReport(
             deviceHeapLimitMb = maxHeapMb,
@@ -255,15 +257,15 @@ class BenchmarkActivity : ComponentActivity() {
             coldStorageBudgetMb = coldBudgetMb,
             naive = ModeEvaluationMetrics(
                 mode = HistoryMode.NAIVE,
-                stepsExecuted = naiveSteps,
-                stoppedNearOom = true,
-                peakRamMb = naivePeakMb,
-                avgStepSizeKb = 16384.0,
-                hotMb = naivePeakMb,
+                stepsExecuted = naiveEntry.completedSteps,
+                stoppedNearOom = naiveEntry.status.contains("OOM"),
+                peakRamMb = naiveEntry.hotMb,
+                avgStepSizeKb = naiveStepKb,
+                hotMb = naiveEntry.hotMb,
                 warmMb = 0.0,
                 coldMb = 0.0,
                 compressionRatio = 1.0,
-                avgLatencyMs = naiveEntry?.p50Ms ?: 14.5,
+                avgLatencyMs = naiveEntry.avgLatencyMs,
                 prefetchHitRate = 0.0,
                 oomCleanerSavedKb = 0.0,
                 maxUndoInRamSteps = naiveMaxCap,
@@ -271,15 +273,15 @@ class BenchmarkActivity : ComponentActivity() {
             ),
             dirtyRect = ModeEvaluationMetrics(
                 mode = HistoryMode.DIRTY_RECT,
-                stepsExecuted = dirtySteps,
-                stoppedNearOom = false,
-                peakRamMb = dirtyPeakMb,
+                stepsExecuted = dirtyEntry.completedSteps,
+                stoppedNearOom = dirtyEntry.status.contains("OOM"),
+                peakRamMb = dirtyEntry.hotMb,
                 avgStepSizeKb = dirtyStepKb,
-                hotMb = dirtyPeakMb,
+                hotMb = dirtyEntry.hotMb,
                 warmMb = 0.0,
                 coldMb = 0.0,
                 compressionRatio = 1.0,
-                avgLatencyMs = dirtyEntry?.p50Ms ?: 5.2,
+                avgLatencyMs = dirtyEntry.avgLatencyMs,
                 prefetchHitRate = 0.0,
                 oomCleanerSavedKb = 0.0,
                 maxUndoInRamSteps = dirtyMaxCap,
@@ -287,17 +289,17 @@ class BenchmarkActivity : ComponentActivity() {
             ),
             tieredSwam = ModeEvaluationMetrics(
                 mode = HistoryMode.TIERED,
-                stepsExecuted = tieredSteps,
+                stepsExecuted = tieredEntry.completedSteps,
                 stoppedNearOom = false,
-                peakRamMb = tieredPeakMb,
+                peakRamMb = tieredEntry.hotMb + tieredEntry.warmMb,
                 avgStepSizeKb = tieredStepKb,
-                hotMb = (tieredPeakMb * 0.55).coerceAtMost(24.0),
-                warmMb = (tieredPeakMb * 0.45).coerceAtMost(20.0),
-                coldMb = (tieredSteps * tieredStepKb) / 1024.0,
-                compressionRatio = 14.2,
-                avgLatencyMs = tieredEntry?.p50Ms ?: 3.8,
-                prefetchHitRate = 88.5,
-                oomCleanerSavedKb = 256.0,
+                hotMb = tieredEntry.hotMb,
+                warmMb = tieredEntry.warmMb,
+                coldMb = tieredEntry.coldMb,
+                compressionRatio = tieredEntry.compressionRatio,
+                avgLatencyMs = tieredEntry.avgLatencyMs,
+                prefetchHitRate = tieredEntry.prefetchHitRate,
+                oomCleanerSavedKb = tieredEntry.oomCleanerSavedKb,
                 maxUndoInRamSteps = swamRamCap,
                 maxUndoWithDiskSteps = swamTotalCap
             )
@@ -305,13 +307,50 @@ class BenchmarkActivity : ComponentActivity() {
     }
 
     private fun toComparisonEntry(mode: HistoryMode, collector: MetricsCollector): ModeComparisonEntry {
+        val peakStats = collector.peakStatsSnapshot ?: collector.finalStatsSnapshot
+        val finalStats = collector.finalStatsSnapshot ?: peakStats
+
+        val hotBytes = collector.peakHotBytes
+        val warmBytes = collector.peakWarmBytes
+        val coldBytes = collector.peakColdBytes
+        val totalHistoryBytes = hotBytes + warmBytes + coldBytes
+        val rawEquivBytes = peakStats?.rawEquivalentBytes ?: totalHistoryBytes
+
+        val compRatio = if (totalHistoryBytes > 0L && rawEquivBytes > 0L) {
+            rawEquivBytes.toDouble() / totalHistoryBytes.toDouble()
+        } else 1.0
+
+        val steps = (peakStats?.totalSteps ?: collector.completedSteps).coerceAtLeast(1)
+        val compressedBytes = warmBytes + coldBytes
+        val compressedSteps = (peakStats?.warmSteps ?: 0) + (peakStats?.coldSteps ?: 0)
+        val avgStepKb = if (mode == HistoryMode.TIERED && compressedSteps > 0) {
+            (compressedBytes / 1024.0) / compressedSteps
+        } else {
+            (totalHistoryBytes / 1024.0) / steps
+        }
+
+        val totalPrefetch = (finalStats?.prefetchHits ?: 0) + (finalStats?.prefetchMisses ?: 0)
+        val hitRate = if (totalPrefetch > 0) {
+            ((finalStats?.prefetchHits ?: 0).toDouble() / totalPrefetch.toDouble()) * 100.0
+        } else 0.0
+
+        val savedKb = (finalStats?.oomCleanerReclaimedBytes ?: 0L) / 1024.0
+
         return ModeComparisonEntry(
             mode = mode,
             status = collector.status.name,
             completedSteps = collector.completedSteps,
             peakRamMb = collector.peakCombinedHeapBytes / (1024.0 * 1024.0),
             peakNativeMb = collector.peakNativeHeapBytes / (1024.0 * 1024.0),
+            hotMb = hotBytes / (1024.0 * 1024.0),
+            warmMb = warmBytes / (1024.0 * 1024.0),
+            coldMb = coldBytes / (1024.0 * 1024.0),
+            avgStepSizeKb = avgStepKb,
+            compressionRatio = compRatio,
+            prefetchHitRate = hitRate,
+            oomCleanerSavedKb = savedKb,
             gcDelta = collector.gcDelta,
+            avgLatencyMs = collector.averageLatencyMs(),
             p50Ms = collector.percentileLatencyMs(50.0),
             p95Ms = collector.percentileLatencyMs(95.0),
             durationMs = collector.durationMs
@@ -327,6 +366,9 @@ class BenchmarkActivity : ComponentActivity() {
         val peakNativeMb = collector.peakNativeHeapBytes / (1024.0 * 1024.0)
         val peakPssMb = collector.peakPssBytes / (1024.0 * 1024.0)
         val peakTotalMb = collector.peakCombinedHeapBytes / (1024.0 * 1024.0)
+        val hotMb = collector.peakHotBytes / (1024.0 * 1024.0)
+        val warmMb = collector.peakWarmBytes / (1024.0 * 1024.0)
+        val coldMb = collector.peakColdBytes / (1024.0 * 1024.0)
 
         val sb = StringBuilder()
         sb.append("=== BÁO CÁO THỰC NGHIỆM (${mode.name}) ===\n")
@@ -334,7 +376,7 @@ class BenchmarkActivity : ComponentActivity() {
         sb.append(String.format(Locale.US, "Loại nét vẽ:      %s (Seed %d)\n", config.strokeType.name, config.seed))
         sb.append(String.format(Locale.US, "Trạng thái:       %s\n", collector.status.name))
         if (collector.errorMessage != null) {
-            sb.append(String.format(Locale.US, "Chi tiết lỗi:     %s\n", collector.errorMessage))
+            sb.append(String.format(Locale.US, "Chi tiết:         %s\n", collector.errorMessage))
         }
         sb.append(String.format(Locale.US, "Số bước hoàn tất: %d bước\n", collector.completedSteps))
         sb.append(String.format(Locale.US, "Tổng thời gian:   %d ms\n", collector.durationMs))
@@ -343,13 +385,18 @@ class BenchmarkActivity : ComponentActivity() {
         sb.append(String.format(Locale.US, "Đỉnh Java Heap:   %.2f MiB\n", peakJavaMb))
         sb.append(String.format(Locale.US, "Đỉnh Native Heap: %.2f MiB\n", peakNativeMb))
         sb.append(String.format(Locale.US, "Đỉnh PSS:         %.2f MiB\n", peakPssMb))
-        sb.append(String.format(Locale.US, "Đỉnh Tổng RAM:    %.2f MiB\n", peakTotalMb))
+        sb.append(String.format(Locale.US, "Đỉnh Tổng Heap:   %.2f MiB\n", peakTotalMb))
+        sb.append(String.format(Locale.US, "Đỉnh Tầng Lịch Sử: Hot %.2fM | Warm %.2fM | Cold %.2fM\n", hotMb, warmMb, coldMb))
         sb.append("----------------------------------------\n")
         sb.append(String.format(Locale.US, "Độ trễ TB/bước:   %.2f ms\n", collector.averageLatencyMs()))
-        sb.append(String.format(Locale.US, "Độ trễ p50 / p95: %.2f ms / %.2f ms\n",
-            collector.percentileLatencyMs(50.0),
-            collector.percentileLatencyMs(95.0)
-        ))
+        sb.append(
+            String.format(
+                Locale.US,
+                "Độ trễ p50 / p95: %.2f ms / %.2f ms\n",
+                collector.percentileLatencyMs(50.0),
+                collector.percentileLatencyMs(95.0)
+            )
+        )
         if (collector.getTierLatencies("HOT").isNotEmpty() ||
             collector.getTierLatencies("WARM").isNotEmpty() ||
             collector.getTierLatencies("COLD").isNotEmpty()
@@ -411,7 +458,7 @@ class BenchmarkActivity : ComponentActivity() {
         )
 
         val msg = "Đã xuất CSV thành công:\n• ${samplesFile.absolutePath}\n• ${summaryFile.absolutePath}"
-        Toast.makeText(this, "Đã xuất file CSV!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Đã xuất tệp CSV", Toast.LENGTH_SHORT).show()
         reportText = "$reportText\n\n$msg"
     }
 
@@ -435,19 +482,19 @@ class BenchmarkActivity : ComponentActivity() {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Quay lại",
-                        tint = NeonCyan
+                        tint = Color(0xFFF3F4F6)
                     )
                 }
                 Column {
                     Text(
-                        text = "PHÒNG THÍ NGHIỆM BENCHMARK E1–E6",
-                        color = Color.White,
+                        text = "Thực nghiệm định lượng E1–E6",
+                        color = Color(0xFFF3F4F6),
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Đo lường Java Heap + Native Bitmap Heap + PSS & Độ trễ theo tầng SWAM",
-                        color = Color(0xFF94A3B8),
+                        text = "Đo Java Heap · Native Heap · PSS · Phân tầng Hot / Warm / Cold & độ trễ",
+                        color = Color(0xFF9CA3AF),
                         fontSize = 11.sp
                     )
                 }
@@ -455,17 +502,17 @@ class BenchmarkActivity : ComponentActivity() {
 
             // 1. Scenario Selector Card (E1 - E6)
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = CyberSurface,
-                border = BorderStroke(1.dp, Color(0xFF23344E)),
+                border = BorderStroke(1.dp, Color(0xFF2E333E)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "1. CHỌN THÍ NGHIỆM (E1 – E6)",
-                        color = NeonCyan,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        text = "1. Chọn kịch bản thực nghiệm (E1 – E6)",
+                        color = Color(0xFFF3F4F6),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
@@ -493,12 +540,12 @@ class BenchmarkActivity : ComponentActivity() {
                                     Text(
                                         text = sc.title,
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Medium
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeonCyan.copy(alpha = 0.22f),
-                                    selectedLabelColor = NeonCyan
+                                    selectedContainerColor = SkyBlue.copy(alpha = 0.2f),
+                                    selectedLabelColor = SkyBlue
                                 )
                             )
                         }
@@ -506,17 +553,17 @@ class BenchmarkActivity : ComponentActivity() {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = selectedScenario.description,
-                        color = Color(0xFFCBD5E1),
-                        fontSize = 11.5.sp
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 11.sp
                     )
                 }
             }
 
             // 2. Mode, Stroke Type & Step Parameters
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = CyberSurface,
-                border = BorderStroke(1.dp, Color(0xFF23344E)),
+                border = BorderStroke(1.dp, Color(0xFF2E333E)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -524,13 +571,12 @@ class BenchmarkActivity : ComponentActivity() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "2. CẤU HÌNH CHẾ ĐỘ & THAM SỐ KỊCH BẢN",
-                        color = SkyBlue,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        text = "2. Cấu hình chế độ và tham số",
+                        color = Color(0xFFF3F4F6),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
 
-                    // Mode row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -544,9 +590,9 @@ class BenchmarkActivity : ComponentActivity() {
                             FilterChip(
                                 selected = selectedMode == m,
                                 onClick = { selectedMode = m },
-                                label = { Text(m.name, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp) },
+                                label = { Text(m.name, fontWeight = FontWeight.SemiBold, fontSize = 11.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = col.copy(alpha = 0.2f),
+                                    selectedContainerColor = col.copy(alpha = 0.18f),
                                     selectedLabelColor = col
                                 ),
                                 modifier = Modifier.weight(1f)
@@ -554,7 +600,6 @@ class BenchmarkActivity : ComponentActivity() {
                         }
                     }
 
-                    // Stroke Type + Quick Step Presets
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -566,9 +611,9 @@ class BenchmarkActivity : ComponentActivity() {
                                 onClick = { selectedStrokeType = st },
                                 label = {
                                     Text(
-                                        text = if (st == StrokeType.SMALL) "Nét Nhỏ (2-10%)" else "Nét Lớn (40-100%)",
+                                        text = if (st == StrokeType.SMALL) "Nét nhỏ (2–10%)" else "Nét lớn (40–100%)",
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Medium
                                     )
                                 },
                                 modifier = Modifier.weight(1f)
@@ -596,25 +641,24 @@ class BenchmarkActivity : ComponentActivity() {
                         )
                     }
 
-                    // Quick step pills including 300 & 500 for Infinite Undo test
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Chọn nhanh:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text("Chọn nhanh:", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                         listOf("30", "60", "150", "300", "500").forEach { preset ->
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (stepsInput == preset) NeonCyan.copy(alpha = 0.22f) else Color(0xFF152036),
-                                border = BorderStroke(1.dp, if (stepsInput == preset) NeonCyan else Color(0xFF283A5A)),
+                                color = if (stepsInput == preset) Color(0xFF252A34) else Color(0xFF14171D),
+                                border = BorderStroke(1.dp, if (stepsInput == preset) SkyBlue.copy(alpha = 0.65f) else Color(0xFF282D37)),
                                 modifier = Modifier.clickable { stepsInput = preset }
                             ) {
                                 Text(
                                     text = "$preset bước",
-                                    color = if (stepsInput == preset) NeonCyan else Color(0xFFCBD5E1),
+                                    color = if (stepsInput == preset) Color(0xFFF3F4F6) else Color(0xFF9CA3AF),
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.Medium,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
@@ -623,7 +667,7 @@ class BenchmarkActivity : ComponentActivity() {
                 }
             }
 
-            // 3. Action Buttons: Run Single vs Compare All 3 Modes vs Export CSV
+            // 3. Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -632,28 +676,30 @@ class BenchmarkActivity : ComponentActivity() {
                     onClick = { startSingleBenchmark() },
                     enabled = !isRunning,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = NeonCyan,
-                        contentColor = Color.Black
+                        containerColor = Color(0xFF22262F),
+                        contentColor = Color(0xFFF3F4F6)
                     ),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Chạy (${selectedMode.name})", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    Text("Chạy (${selectedMode.name})", fontWeight = FontWeight.Medium, fontSize = 12.sp)
                 }
 
                 Button(
                     onClick = { startCompareAllThreeModes() },
                     enabled = !isRunning,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = EmeraldGreen,
-                        contentColor = Color.Black
+                        containerColor = Color(0xFF2563EB),
+                        contentColor = Color.White
                     ),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1.15f)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.CompareArrows, contentDescription = null)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("So Sánh 3 Chế Độ", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    Text("So sánh 3 chế độ", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 }
             }
 
@@ -664,18 +710,19 @@ class BenchmarkActivity : ComponentActivity() {
             ) {
                 Text(
                     text = progressLabel,
-                    color = AmberGold,
+                    color = Color(0xFFD1D5DB),
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedButton(
                     onClick = { exportCsv() },
-                    enabled = !isRunning && lastCollector != null
+                    enabled = !isRunning && lastCollector != null,
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Xuất CSV", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    Text("Xuất CSV", fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                 }
             }
 
@@ -684,34 +731,35 @@ class BenchmarkActivity : ComponentActivity() {
                     progress = { (progressCurrent.toFloat() / progressTotal.coerceAtLeast(1)).coerceIn(0f, 1f) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
+                        .height(5.dp)
                         .clip(RoundedCornerShape(3.dp)),
-                    color = NeonCyan
+                    color = SkyBlue,
+                    trackColor = Color(0xFF282D37)
                 )
             }
 
-            // 4. Visual Comparison Chart Card (When entries are available)
+            // 4. Visual Comparison Chart Card
             if (comparisonEntries.isNotEmpty()) {
                 ComparisonVisualCard(entries = comparisonEntries)
             }
 
-            // 4b. Mathematical Proof & Capacity Analysis Report Card
+            // 4b. Mathematical & Capacity Analysis Report Card (Only when all 3 modes are compared)
             mathReport?.let { rep ->
                 SwamComparisonReportContent(report = rep)
             }
 
             // 5. Detailed Monospace Console Report
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF070B14),
-                border = BorderStroke(1.dp, Color(0xFF1F2E47)),
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF14171D),
+                border = BorderStroke(1.dp, Color(0xFF282D37)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = reportText,
-                    color = Color(0xFFE2E8F0),
+                    color = Color(0xFFE5E7EB),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     lineHeight = 16.sp,
                     modifier = Modifier.padding(12.dp)
                 )
@@ -724,9 +772,9 @@ class BenchmarkActivity : ComponentActivity() {
 private fun ComparisonVisualCard(entries: List<ModeComparisonEntry>) {
     val maxRam = max(10.0, entries.maxOfOrNull { it.peakRamMb } ?: 10.0)
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         color = CyberSurface,
-        border = BorderStroke(1.dp, EmeraldGreen.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, Color(0xFF2E333E)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -734,10 +782,10 @@ private fun ComparisonVisualCard(entries: List<ModeComparisonEntry>) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "📊 BIỂU ĐỒ SO SÁNH KẾT QUẢ THỰC NGHIỆM",
-                color = RadiantMint,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold
+                text = "Kết quả đo thực nghiệm",
+                color = Color(0xFFF3F4F6),
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold
             )
 
             entries.forEach { entry ->
@@ -746,7 +794,7 @@ private fun ComparisonVisualCard(entries: List<ModeComparisonEntry>) {
                     HistoryMode.DIRTY_RECT -> AmberGold
                     HistoryMode.TIERED -> RadiantMint
                 }
-                val ramFrac = (entry.peakRamMb / maxRam).toFloat().coerceIn(0.04f, 1f)
+                val ramFrac = (entry.peakRamMb / maxRam).toFloat().coerceIn(0.02f, 1f)
 
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -757,40 +805,36 @@ private fun ComparisonVisualCard(entries: List<ModeComparisonEntry>) {
                             text = "${entry.mode.name} • ${entry.status} (${entry.completedSteps} bước)",
                             color = color,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = String.format(
                                 Locale.US,
-                                "Peak RAM: %.1f MB | p50: %.1fms | GC: +%d",
+                                "Đỉnh Heap: %.1fM | p50: %.2fms | GC: +%d",
                                 entry.peakRamMb,
                                 entry.p50Ms,
                                 entry.gcDelta
                             ),
-                            color = Color(0xFFCBD5E1),
+                            color = Color(0xFFD1D5DB),
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Medium
                         )
                     }
                     Spacer(modifier = Modifier.height(3.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(8.dp)
+                            .height(7.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF131D31))
+                            .background(Color(0xFF252A34))
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(ramFrac)
-                                .height(8.dp)
+                                .height(7.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(color.copy(alpha = 0.7f), color)
-                                    )
-                                )
+                                .background(color)
                         )
                     }
                 }
