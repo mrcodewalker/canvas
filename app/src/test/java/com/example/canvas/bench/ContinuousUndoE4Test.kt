@@ -33,7 +33,7 @@ class ContinuousUndoE4Test {
         val historyDir = tempFolder.newFolder("history_e4")
         val coldStore = ColdStore(historyDir)
         val warmStore = WarmStore()
-        val prefetcher = Prefetcher(coldStore, warmStore, k = 5, ioDispatcher = testDispatcher)
+        val prefetcher = Prefetcher(coldStore, warmStore, ioDispatcher = testDispatcher)
 
         val strokeCount = 50
         val raw = ByteArray(200) { (it % 20).toByte() }
@@ -79,8 +79,9 @@ class ContinuousUndoE4Test {
                 coldStore.remove(patchToUndo)
             }
 
-            // Trigger prefetch for next K=5 patches in undo order
-            prefetcher.prefetchNextK(undoStack.toList(), testScope)
+            // Adaptive prefetch: the model decides how many upcoming patches to read
+            prefetcher.onUndo()
+            prefetcher.prefetchAhead(undoStack.toList(), testScope)
             testScope.advanceUntilIdle() // Simulates async prefetch completing before next user undo
         }
 
@@ -93,7 +94,7 @@ class ContinuousUndoE4Test {
     fun testContinuousUndoWithoutPrefetchZeroHitRate() {
         val coldStore = ColdStore(tempFolder.newFolder("history_e4_no_prefetch"))
         val warmStore = WarmStore()
-        val prefetcher = Prefetcher(coldStore, warmStore, k = 5)
+        val prefetcher = Prefetcher(coldStore, warmStore)
         prefetcher.isEnabled = false
 
         for (i in 1..20) {

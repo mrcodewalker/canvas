@@ -23,7 +23,7 @@ Dự án **Chronos Canvas** được thiết kế nhằm giải quyết triệt 
 
 ## 2. Cơ sở lý thuyết: Paper SWAM và Sự Chuyển Hóa Lên Tầng Ứng Dụng
 
-Nghiên cứu gốc: **SWAM: Sliding Window-based Adaptive Memory Management for Mobile Systems** (*arXiv:2306.08345*).
+Nghiên cứu gốc: **SWAM: Revisiting Swap and OOMK for Improving Application Responsiveness on Mobile Devices** (Lim, Kang, Ham, Eom; *arXiv:2306.08345*). Ariadne (*arXiv:2502.12826*) bổ sung ý tưởng tổ chức dữ liệu theo độ nóng/lạnh, nén thích ứng theo tầng và giải nén trước.
 
 ```
                       SO SÁNH ĐỐI CHIẾU KIẾN TRÚC
@@ -53,7 +53,7 @@ Nghiên cứu gốc: **SWAM: Sliding Window-based Adaptive Memory Management for
 | **Mô hình 3 tầng (Hot / Warm / Cold)** | **Lấy cảm hứng từ SWAM** | Tương tự RAM $\to$ zRAM $\to$ Swap Storage trong kernel: Hot lưu Bitmap nguyên bản; Warm lưu mảng byte nén Deflater trong RAM; Cold lưu file nhị phân trên đĩa nội bộ. |
 | **Chính sách hạ cấp thích ứng (Adaptive Demotion)** | **Lấy cảm hứng từ SWAM** | Tự động đẩy các patch cũ nhất từ Hot sang Warm khi vượt trần 15% heap, và từ Warm sang Cold khi vượt trần Warm. |
 | **Bộ dọn áp lực bộ nhớ (OOM Cleaner)** | **Lấy cảm hứng từ SWAM** | Hook vào vòng đời `onTrimMemory()` của Android: tự động co rút Hot xuống 50% (Mild), 25% (Moderate), và xả sạch 0% (Complete/Stress) mà không mất mát dữ liệu. |
-| **Tiên đoán nạp trước (Prefetcher)** | **Lấy cảm hứng từ SWAM** | Nhận diện chuỗi thao tác hoàn tác người dùng, nạp trước $K=5$ patch cũ từ đĩa (Cold) lên RAM (Warm) trên luồng I/O ngầm. |
+| **Tiên đoán nạp trước (Prefetcher)** | **Lấy cảm hứng từ SWAM** | Nhận diện chuỗi thao tác hoàn tác người dùng, nạp trước từ đĩa (Cold) lên RAM (Warm), giải nén sẵn khi còn RAM; **số lượng nạp không cố định**, được tính lại ở mỗi lần undo từ nhịp undo, tốc độ đọc/giải nén đo được, thói quen vẽ và bộ nhớ còn trống (`PrefetchModel`). |
 | **Vùng biến đổi cục bộ (DirtyRect)** | **Nhóm tự thiết kế** | Tính toán hình chữ nhật bao quanh nét vẽ (`Stroke.computeBounds`), chỉ lưu lại pixel trong vùng bị biến đổi thay vì 16 MiB full canvas, tiết kiệm tới 180 lần RAM cho nét nhỏ. |
 | **Áp patch không trộn (SRC Blit)** | **Nhóm tự thiết kế** | Sử dụng `Paint` với `PorterDuff.Mode.SRC` để ghi đè tuyệt đối pixel cũ khi Undo/Redo, triệt tiêu lỗi hòa trộn alpha tích lũy. |
 | **Codec nhị phân ColdFile 36-byte** | **Nhóm tự thiết kế** | Định dạng file nhị phân chuẩn hóa (`.chrf`) với Magic Byte `'CHRN'`, Version, Rect, CRC32 và cơ chế ghi file tạm `.tmp` rồi đổi tên nguyên tử (Atomic Rename). |
@@ -134,7 +134,9 @@ Hệ thống được tổ chức dạng mô-đun hóa trong package `com.exampl
 
 Tất cả các thí nghiệm được chạy độc lập, lặp lại **5 lần** với các seed ngẫu nhiên cố định ($101, 102, 103, 104, 105$) trên môi trường chuẩn nhằm đo đạc giá trị **Trung bình (Mean)** và **Độ lệch chuẩn (StdDev)**.
 
-### 5.1. Bảng số liệu tổng hợp (Trích xuất từ `benchmark_e1_e6_summary.csv`)
+> **⚠ LƯU Ý TRUNG THỰC KHOA HỌC.** Các số trong bảng 5.1 và file `benchmark_e1_e6_summary.csv` là **giá trị minh họa viết cố định trong mã nguồn** (trước đây nằm trong một bài kiểm thử), **không phải kết quả đo**. Không dùng chúng làm số liệu nghiệm thu. Phải chạy lại E1–E6 trên thiết bị thật (Macrobenchmark/`BenchmarkActivity` + `CsvExporter`), ≥ 30 lần lặp, báo trung vị, p95, p99 và khoảng tin cậy, rồi thay bảng này.
+
+### 5.1. Bảng số liệu (MINH HỌA, CHƯA ĐO — xem cảnh báo ở trên)
 
 | Mã TN | Thí nghiệm & Kịch bản | Chế độ | Số bước tối đa (Mean ± Std) | RAM Đỉnh (MiB) (Mean ± Std) | Delta GC Runs (Mean ± Std) | Độ trễ bước (ms) (p50 / p95) | Prefetch Hit Rate | Tính đúng đắn (E6) |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -195,7 +197,7 @@ COLD + PREFETCH (E4)      [====] p50: 5.2 ms | p95: 12.6 ms (Gần tương đư�
    - Tầng **Warm** mất **10.4 ms**, vẫn nằm gọn trong giới hạn 1 frame của màn hình 60Hz ($16.6$ ms).
    - Tầng **Cold** do phải đọc I/O đĩa flash nên mất **24-38 ms**. Điều này chứng minh sự cần thiết tuyệt đối của cơ chế Prefetcher.
 4. **Thí nghiệm E4 (Hiệu quả Prefetcher)**:
-   - Khi hoàn tác liên tục 100 bước, Prefetcher tiên đoán hướng đi ngược của người dùng và nạp trước $K=5$ patch, đạt tỷ lệ trúng **87.8%**.
+   - Khi hoàn tác liên tục 100 bước, Prefetcher thích ứng tính độ sâu nạp trước theo dữ liệu đo (không dùng hằng số K). Tỷ lệ trúng **chưa được đo trên thiết bị**; xem mục 5.
    - Nhờ đó, độ trễ trung bình của chuỗi 100 bước Undo từ Cold giảm từ $38.4$ ms xuống chỉ còn **$5.2$ ms**, loại bỏ hoàn toàn cảm giác giật khi người dùng giữ nút Undo.
 5. **Thí nghiệm E5 (Khả năng chịu áp lực bộ nhớ & Stress Test)**:
    - Khi hệ điều hành gửi tín hiệu `TRIM_MEMORY_COMPLETE`, tầng Hot ngay lập tức hạ cấp toàn bộ patch về tầng Warm và Cold, đưa Hot RAM về đúng **0 MiB**.
@@ -241,7 +243,7 @@ Dự án **Chronos Canvas** đã chứng minh tính khả thi và hiệu quả v
 ## 8. Checklist Nghiệm Thu Đề Tài (Mục 12)
 
 - [x] **Ba chế độ hoạt động trơn tru và chuyển đổi trực tiếp trong app**: Nút `tvMode` trên thanh công cụ chuyển đổi tức thời giữa `NAIVE`, `DIRTY_RECT`, và `TIERED`.
-- [x] **Thí nghiệm E1–E6 đầy đủ số liệu thực nghiệm lặp lại nhiều lần**: Kết quả đo đạc 5 lần lặp, ghi nhận Mean ± StdDev được lưu tại [`reports/benchmarks/benchmark_e1_e6_summary.csv`](file:///c:/Users/ADMIN/AndroidStudioProjects/Canvas/reports/benchmarks/benchmark_e1_e6_summary.csv).
+- [ ] **Thí nghiệm E1–E6 trên thiết bị thật**: CHƯA thực hiện. File sau chứa số minh họa, không phải kết quả đo: [`reports/benchmarks/benchmark_e1_e6_summary.csv`](file:///c:/Users/ADMIN/AndroidStudioProjects/Canvas/reports/benchmarks/benchmark_e1_e6_summary.csv).
 - [x] **E6 (Tính đúng đắn điểm ảnh) đạt 100%**: Giá trị CRC32 canvas phục hồi hoàn toàn trùng khớp với canvas ban đầu trên tất cả các seed.
 - [x] **Kịch bản Demo 3 phút hoàn chỉnh**: Tích hợp sẵn `DemoScenarioRunner` với banner tiến trình, thuyết minh từng giai đoạn và nút điều khiển trực tiếp trên màn hình chính.
 - [x] **Phân định rõ ràng phần lấy cảm hứng từ SWAM và phần tự thiết kế**: Đã trình bày chi tiết tại Mục 2 của báo cáo.

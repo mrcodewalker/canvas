@@ -2,16 +2,16 @@
     <!-- Base application theme. -->
     <style name="Theme.Canvas" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Primary brand color. -->
-        <item name="colorPrimary">#00E5FF</item>
-        <item name="colorPrimaryVariant">#070A11</item>
+        <item name="colorPrimary">#E2553A</item>
+        <item name="colorPrimaryVariant">#171614</item>
         <item name="colorOnPrimary">@color/white</item>
         <!-- Secondary brand color. -->
-        <item name="colorSecondary">#10B981</item>
-        <item name="colorSecondaryVariant">#059669</item>
+        <item name="colorSecondary">#4FA38C</item>
+        <item name="colorSecondaryVariant">#3E8A75</item>
         <item name="colorOnSecondary">@color/white</item>
         <!-- Status bar and Navigation bar for modern full-screen immersion -->
-        <item name="android:statusBarColor">#0D121D</item>
-        <item name="android:navigationBarColor">#070A11</item>
+        <item name="android:statusBarColor">#171614</item>
+        <item name="android:navigationBarColor">#171614</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>

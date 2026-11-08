@@ -1,7 +1,6 @@
 package com.example.canvas.core
 
 import android.graphics.Bitmap
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.zip.CRC32
 import java.util.zip.Deflater
@@ -40,33 +39,47 @@ object PatchCodec {
 
     const val DEFAULT_COMPRESSION_LEVEL = Deflater.BEST_SPEED // Level 1 (fastest, low CPU overhead)
 
+    // Compressed size / raw size of the previous call: sizes the next output buffer. Strokes on a blank canvas
+    // compress 30-170x, so allocating the worst case (as large as the input) wasted megabytes per call.
+    @Volatile
+    private var lastRatio = 0.25
+
     /**
-     * Compresses raw byte array using Deflater.
+     * Compresses [length] bytes of [rawBytes] using Deflater.
      * Guaranteed 100% lossless.
+     *
+     * (Cutting big patches into slices compressed on several cores was tried and measured on a 4-core device:
+     * compression barely improved, decompression got slower and the whole run took longer, so it was removed.)
      */
     fun compress(
         rawBytes: ByteArray,
-        level: Int = DEFAULT_COMPRESSION_LEVEL
+        level: Int = DEFAULT_COMPRESSION_LEVEL,
+        length: Int = rawBytes.size
     ): CompressedPatch {
         val crc = CRC32()
-        crc.update(rawBytes)
+        crc.update(rawBytes, 0, length)
         val crcValue = crc.value
 
         val deflater = Deflater(level)
-        deflater.setInput(rawBytes)
+        deflater.setInput(rawBytes, 0, length)
         deflater.finish()
 
-        val outputStream = ByteArrayOutputStream(rawBytes.size / 2)
-        val buffer = ByteArray(8192)
+        // zlib's compressBound() is the hard ceiling; start from what the last call needed and grow if short
+        val bound = length + (length shr 12) + (length shr 14) + (length shr 25) + 64
+        var out = ByteArray(minOf(bound, maxOf(4096, (length * lastRatio * 1.5).toInt() + 64)))
+        var written = 0
         while (!deflater.finished()) {
-            val count = deflater.deflate(buffer)
-            outputStream.write(buffer, 0, count)
+            if (written == out.size) out = out.copyOf(minOf(bound, out.size * 2))
+            val count = deflater.deflate(out, written, out.size - written)
+            if (count == 0 && deflater.needsInput()) break
+            written += count
         }
         deflater.end()
+        if (length > 0) lastRatio = written.toDouble() / length
 
         return CompressedPatch(
-            compressedBytes = outputStream.toByteArray(),
-            rawLength = rawBytes.size,
+            compressedBytes = if (written == out.size) out else out.copyOf(written),
+            rawLength = length,
             crc32 = crcValue
         )
     }
@@ -80,13 +93,18 @@ object PatchCodec {
         rawLength: Int,
         expectedCrc32: Long = 0L
     ): ByteArray {
+        val decompressed = ByteArray(rawLength)
+        inflateInto(compressedBytes, decompressed, rawLength, expectedCrc32)
+        return decompressed
+    }
+
+    private fun inflateInto(compressedBytes: ByteArray, dest: ByteArray, rawLength: Int, expectedCrc32: Long) {
         val inflater = Inflater()
         inflater.setInput(compressedBytes)
 
-        val decompressed = ByteArray(rawLength)
         var offset = 0
         while (!inflater.finished() && offset < rawLength) {
-            val count = inflater.inflate(decompressed, offset, rawLength - offset)
+            val count = inflater.inflate(dest, offset, rawLength - offset)
             if (count == 0 && inflater.needsInput()) break
             offset += count
         }
@@ -98,13 +116,11 @@ object PatchCodec {
 
         if (expectedCrc32 != 0L) {
             val crc = CRC32()
-            crc.update(decompressed)
+            crc.update(dest, 0, rawLength)
             if (crc.value != expectedCrc32) {
                 throw IllegalStateException("CRC32 mismatch after decompression: expected $expectedCrc32 but got ${crc.value}")
             }
         }
-
-        return decompressed
     }
 
     /**
@@ -115,9 +131,34 @@ object PatchCodec {
         level: Int = DEFAULT_COMPRESSION_LEVEL
     ): CompressedPatch {
         val byteCount = bitmap.byteCount
-        val buffer = ByteBuffer.allocate(byteCount)
-        bitmap.copyPixelsToBuffer(buffer)
-        return compress(buffer.array(), level)
+        val raw = BufferPool.acquire(byteCount)
+        try {
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(raw, 0, byteCount))
+            return compress(raw, level, byteCount)
+        } finally {
+            BufferPool.release(raw)
+        }
+    }
+
+    /**
+     * Compresses the same pixels at every level in [levels] and reports how long each took: the fair way to
+     * compare levels. Returns, per level, the result and the nanoseconds spent compressing (CRC included).
+     */
+    fun compressBitmapAtLevels(bitmap: Bitmap, levels: List<Int>): Map<Int, Pair<CompressedPatch, Long>> {
+        val byteCount = bitmap.byteCount
+        val raw = BufferPool.acquire(byteCount)
+        try {
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(raw, 0, byteCount))
+            val out = LinkedHashMap<Int, Pair<CompressedPatch, Long>>()
+            for (level in levels) {
+                val t0 = System.nanoTime()
+                val c = compress(raw, level, byteCount)
+                out[level] = c to (System.nanoTime() - t0)
+            }
+            return out
+        } finally {
+            BufferPool.release(raw)
+        }
     }
 
     /**
@@ -130,10 +171,16 @@ object PatchCodec {
         rawLength: Int,
         expectedCrc32: Long = 0L
     ): Bitmap {
-        val rawBytes = decompress(compressedBytes, rawLength, expectedCrc32)
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(rawBytes))
-        return bitmap
+        // inflate into a pooled buffer and let the bitmap read straight from it: no pixel-sized temporary array
+        val raw = BufferPool.acquire(rawLength)
+        try {
+            inflateInto(compressedBytes, raw, rawLength, expectedCrc32)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(raw, 0, rawLength))
+            return bitmap
+        } finally {
+            BufferPool.release(raw)
+        }
     }
 
     /**

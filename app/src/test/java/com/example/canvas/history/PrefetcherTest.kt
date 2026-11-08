@@ -26,7 +26,7 @@ class PrefetcherTest {
     fun testHitAndMissTracking() {
         val coldStore = ColdStore(tempFolder.newFolder("cold_prefetch_stats"))
         val warmStore = WarmStore()
-        val prefetcher = Prefetcher(coldStore, warmStore, k = 5)
+        val prefetcher = Prefetcher(coldStore, warmStore)
 
         assertEquals(0, prefetcher.hits.get())
         assertEquals(0, prefetcher.misses.get())
@@ -47,14 +47,14 @@ class PrefetcherTest {
     }
 
     @Test
-    fun testPrefetchNextKPromotesColdToWarm() = runTest {
+    fun testPrefetchExploresWithOneGroupWhenNothingIsKnown() = runTest {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val testScope = TestScope(testDispatcher)
 
         val historyDir = tempFolder.newFolder("cold_prefetch_k")
         val coldStore = ColdStore(historyDir)
         val warmStore = WarmStore()
-        val prefetcher = Prefetcher(coldStore, warmStore, k = 3, ioDispatcher = testDispatcher)
+        val prefetcher = Prefetcher(coldStore, warmStore, ioDispatcher = testDispatcher)
 
         val raw = ByteArray(100) { it.toByte() }
         val comp = PatchCodec.compress(raw)
@@ -83,26 +83,17 @@ class PrefetcherTest {
         assertEquals(6, coldStore.count)
         assertEquals(0, warmStore.count)
 
-        // Request prefetch of top K=3 patches in undo order (patches 6, 5, 4)
-        prefetcher.prefetchNextK(patches, testScope)
+        // Nothing is known yet (no cadence, no fetch cost): the prefetcher explores with exactly one
+        // group - the one that will be undone next (patch 6) - to obtain its first measurement.
+        prefetcher.prefetchAhead(patches, testScope)
         testScope.advanceUntilIdle()
 
-        // Patches 6, 5, 4 should now be promoted to WARM in warmStore
-        assertEquals(3, warmStore.count)
-        assertEquals(3, coldStore.count)
-
+        assertEquals(1, warmStore.count)
+        assertEquals(5, coldStore.count)
         assertEquals(PatchState.WARM, patches[5].state)
-        assertEquals(PatchState.WARM, patches[4].state)
-        assertEquals(PatchState.WARM, patches[3].state)
-
         assertNotNull(patches[5].compressedBytes)
-        assertNotNull(patches[4].compressedBytes)
-        assertNotNull(patches[3].compressedBytes)
-
-        // Patches 1, 2, 3 should remain COLD
-        assertEquals(PatchState.COLD, patches[0].state)
-        assertEquals(PatchState.COLD, patches[1].state)
-        assertEquals(PatchState.COLD, patches[2].state)
+        for (i in 0..4) assertEquals(PatchState.COLD, patches[i].state)
+        assertEquals(1, prefetcher.lastLookaheadGroups)
     }
 
     @Test
@@ -113,7 +104,7 @@ class PrefetcherTest {
         val historyDir = tempFolder.newFolder("cold_prefetch_disabled")
         val coldStore = ColdStore(historyDir)
         val warmStore = WarmStore()
-        val prefetcher = Prefetcher(coldStore, warmStore, k = 3, ioDispatcher = testDispatcher)
+        val prefetcher = Prefetcher(coldStore, warmStore, ioDispatcher = testDispatcher)
         prefetcher.isEnabled = false
 
         val raw = ByteArray(50) { 1 }
@@ -130,7 +121,7 @@ class PrefetcherTest {
         p.sizeBytes = file.length()
         coldStore.add(p)
 
-        prefetcher.prefetchNextK(listOf(p), testScope)
+        prefetcher.prefetchAhead(listOf(p), testScope)
         testScope.advanceUntilIdle()
 
         assertEquals(0, warmStore.count)

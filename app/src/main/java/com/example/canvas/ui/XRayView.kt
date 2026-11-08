@@ -56,23 +56,23 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val topGlowLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00E5FF")
+        color = Color.parseColor("#E2553A")
         style = Paint.Style.STROKE
         strokeWidth = dp(1.5f)
     }
 
     // Pulsing radar dot
     private val radarOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#2010B981")
+        color = Color.parseColor("#204FA38C")
         style = Paint.Style.FILL
     }
     private val radarInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#10B981")
+        color = Color.parseColor("#4FA38C")
         style = Paint.Style.FILL
     }
 
     private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#38BDF8")
+        color = Color.parseColor("#7FA6C9")
         textSize = sp(11.5f)
         isFakeBoldText = true
         letterSpacing = 0.05f
@@ -94,13 +94,13 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#F8FAFC")
+        color = Color.parseColor("#F2EEE7")
         textSize = sp(10.5f)
         isFakeBoldText = true
     }
 
     private val subMetricPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#CBD5E1")
+        color = Color.parseColor("#CFC9BF")
         textSize = sp(10f)
         isFakeBoldText = true
     }
@@ -158,7 +158,7 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val nativeLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#818CF8") // Vibrant Indigo
+        color = Color.parseColor("#9A93B0") // Vibrant Indigo
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
     }
@@ -168,12 +168,12 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val chartAnnotationPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#64748B")
+        color = Color.parseColor("#7A746B")
         textSize = sp(9f)
     }
 
     private val peakBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#38BDF8")
+        color = Color.parseColor("#7FA6C9")
         textSize = sp(9.5f)
         isFakeBoldText = true
     }
@@ -191,14 +191,14 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val statTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#64748B")
+        color = Color.parseColor("#7A746B")
         textSize = sp(8.5f)
         isFakeBoldText = true
         letterSpacing = 0.06f
     }
 
     private val statValPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#F1F5F9")
+        color = Color.parseColor("#F2EEE7")
         textSize = sp(10.5f)
         isFakeBoldText = true
     }
@@ -216,7 +216,7 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val btnTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#CBD5E1")
+        color = Color.parseColor("#CFC9BF")
         textSize = sp(9.5f)
         isFakeBoldText = true
     }
@@ -233,7 +233,7 @@ class XRayView @JvmOverloads constructor(
     }
 
     private val closeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#F87171")
+        color = Color.parseColor("#EE7A60")
         textSize = sp(11.5f)
         isFakeBoldText = true
     }
@@ -338,8 +338,8 @@ class XRayView @JvmOverloads constructor(
         // Mode badge pill
         val modeColor = when (currentMode) {
             HistoryMode.NAIVE -> Color.parseColor("#F43F5E")
-            HistoryMode.DIRTY_RECT -> Color.parseColor("#F59E0B")
-            HistoryMode.TIERED -> Color.parseColor("#10B981")
+            HistoryMode.DIRTY_RECT -> Color.parseColor("#D9A13B")
+            HistoryMode.TIERED -> Color.parseColor("#4FA38C")
         }
         modeBadgeBorderPaint.color = modeColor
         modeTextPaint.color = modeColor
@@ -440,7 +440,7 @@ class XRayView @JvmOverloads constructor(
         val warmPctWidth = pctTagPaint.measureText(warmPctText)
         val warmValWidth = subMetricPaint.measureText(warmValText)
 
-        pctTagPaint.color = Color.parseColor("#F59E0B")
+        pctTagPaint.color = Color.parseColor("#D9A13B")
         canvas.drawText(warmPctText, bounds.right - dp(12f) - warmPctWidth, currentY + dp(8f), pctTagPaint)
         canvas.drawText(warmValText, bounds.right - dp(16f) - warmPctWidth - warmValWidth, currentY + dp(8f), subMetricPaint)
         currentY += dp(11f)
@@ -470,7 +470,7 @@ class XRayView @JvmOverloads constructor(
         val coldPctWidth = pctTagPaint.measureText(coldPctText)
         val coldValWidth = subMetricPaint.measureText(coldValText)
 
-        pctTagPaint.color = Color.parseColor("#06B6D4")
+        pctTagPaint.color = Color.parseColor("#4FA38C")
         canvas.drawText(coldPctText, bounds.right - dp(12f) - coldPctWidth, currentY + dp(8f), pctTagPaint)
         canvas.drawText(coldValText, bounds.right - dp(16f) - coldPctWidth - coldValWidth, currentY + dp(8f), subMetricPaint)
         currentY += dp(11f)
@@ -558,9 +558,9 @@ class XRayView @JvmOverloads constructor(
         canvas.drawRoundRect(badgeRect, dp(6f), dp(6f), statCardBorderPaint)
         canvas.drawText("PREFETCH HIT", c3Left + dp(7f), currentY + dp(10f), statTitlePaint)
         val prefetchVal = "%.0f%% rate".format(tel.prefetchHitRate)
-        statValPaint.color = Color.parseColor("#10B981")
+        statValPaint.color = Color.parseColor("#4FA38C")
         canvas.drawText(prefetchVal, c3Left + dp(7f), currentY + dp(22f), statValPaint)
-        statValPaint.color = Color.parseColor("#F1F5F9") // restore
+        statValPaint.color = Color.parseColor("#F2EEE7") // restore
     }
 
     private fun drawChartLines(canvas: Canvas, rect: RectF) {
@@ -618,7 +618,7 @@ class XRayView @JvmOverloads constructor(
             }
             totalFillPaint.shader = LinearGradient(
                 rect.left, rect.top, rect.left, rect.bottom,
-                Color.parseColor("#3306B6D4"), Color.parseColor("#0006B6D4"),
+                Color.parseColor("#334FA38C"), Color.parseColor("#004FA38C"),
                 Shader.TileMode.CLAMP
             )
             canvas.drawPath(fillPath, totalFillPaint)

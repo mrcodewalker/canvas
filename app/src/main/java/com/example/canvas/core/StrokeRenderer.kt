@@ -59,40 +59,58 @@ class StrokeRenderer {
     }
 
     /**
-     * Renders the active in-flight stroke on the live view canvas with a soft luminous ink aura
-     * and a precision brush-tip ring for a flagship studio feel.
+     * Renders the stroke being drawn exactly as it will be committed (what you see is what is saved):
+     * no glow, no cursor decoration.
      */
-    fun renderLiveStroke(canvas: Canvas, stroke: Stroke, accentGlowColor: Int) {
+    fun renderLiveStroke(canvas: Canvas, stroke: Stroke, @Suppress("UNUSED_PARAMETER") unused: Int = 0) {
         val points = stroke.points
         if (points.isEmpty()) return
 
-        val lastPt = points.last()
-
         if (points.size == 1) {
-            liveAuraPaint.color = accentGlowColor
-            liveAuraPaint.alpha = 55
+            val pt = points[0]
             pointPaint.color = stroke.color
-            canvas.drawCircle(lastPt.x, lastPt.y, stroke.width * 0.85f, liveAuraPaint)
-            canvas.drawCircle(lastPt.x, lastPt.y, stroke.width / 2f, pointPaint)
-        } else {
-            val path = buildSmoothPath(points)
-            // 1. Soft outer luminous halo
-            liveAuraPaint.color = accentGlowColor
-            liveAuraPaint.alpha = 50
-            liveAuraPaint.strokeWidth = stroke.width + 14f
-            canvas.drawPath(path, liveAuraPaint)
-
-            // 2. Crisp core stroke
-            strokePaint.color = stroke.color
-            strokePaint.strokeWidth = stroke.width
-            canvas.drawPath(path, strokePaint)
+            canvas.drawCircle(pt.x, pt.y, stroke.width / 2f, pointPaint)
+            return
         }
+        strokePaint.color = stroke.color
+        strokePaint.strokeWidth = stroke.width
+        canvas.drawPath(buildLivePath(stroke), strokePaint)
+    }
 
-        // 3. Precision brush tip ring + center dot
-        val ringRadius = (stroke.width / 2f + 10f).coerceAtLeast(18f)
-        cursorRingPaint.color = accentGlowColor
-        cursorRingPaint.alpha = 210
-        canvas.drawCircle(lastPt.x, lastPt.y, ringRadius, cursorRingPaint)
+    // The in-flight stroke only ever grows by appending points, so its smooth path is extended, not rebuilt:
+    // O(new points) per frame instead of O(all points) (O(n^2) over a stroke) and no per-frame Path garbage.
+    private var liveRef: Stroke? = null
+    private var liveFolded = 0
+    private var livePrevX = 0f
+    private var livePrevY = 0f
+    private val committedLivePath = Path()
+    private val liveFramePath = Path()
+
+    private fun buildLivePath(stroke: Stroke): Path {
+        val points = stroke.points
+        if (stroke !== liveRef || points.size < liveFolded) {
+            committedLivePath.reset()
+            liveRef = stroke
+            liveFolded = 0
+        }
+        if (liveFolded == 0) {
+            val first = points[0]
+            committedLivePath.moveTo(first.x, first.y)
+            livePrevX = first.x
+            livePrevY = first.y
+            liveFolded = 1
+        }
+        for (i in liveFolded until points.size) {
+            val curr = points[i]
+            committedLivePath.quadTo(livePrevX, livePrevY, (livePrevX + curr.x) / 2f, (livePrevY + curr.y) / 2f)
+            livePrevX = curr.x
+            livePrevY = curr.y
+        }
+        liveFolded = points.size
+        // native copy of the folded part + the open tail to the newest point
+        liveFramePath.set(committedLivePath)
+        liveFramePath.lineTo(livePrevX, livePrevY)
+        return liveFramePath
     }
 
     private fun buildSmoothPath(points: List<StrokePoint>): Path {

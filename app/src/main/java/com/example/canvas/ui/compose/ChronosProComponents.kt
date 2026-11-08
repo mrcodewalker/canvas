@@ -61,12 +61,12 @@ fun AuroraGlassCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 12.dp,
     accentColors: List<Color> = listOf(NeonCyan, ElectricIndigo, RadiantMint),
-    containerColor: Color = Color(0xF2181B21),
+    containerColor: Color = Color(0xF21F1D1B),
     glowAlpha: Float = 0f,
     content: @Composable BoxScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    val borderColor = Color(0xFF2E333E)
+    val borderColor = Color(0xFF3A3733)
 
     Box(
         modifier = modifier
@@ -116,7 +116,7 @@ fun NeonArcGauge(
 
                 // Track arc (240 degrees)
                 drawArc(
-                    color = Color(0xFF252A34),
+                    color = Color(0xFF34312D),
                     startAngle = 150f,
                     sweepAngle = 240f,
                     useCenter = false,
@@ -143,7 +143,7 @@ fun NeonArcGauge(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = valueText,
-                    color = Color(0xFFF3F4F6),
+                    color = Color(0xFFF2EEE7),
                     fontSize = 10.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
@@ -151,7 +151,7 @@ fun NeonArcGauge(
                 )
                 Text(
                     text = subText,
-                    color = Color(0xFF9CA3AF),
+                    color = Color(0xFF9A948A),
                     fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,
@@ -163,7 +163,7 @@ fun NeonArcGauge(
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = title,
-            color = Color(0xFFD1D5DB),
+            color = Color(0xFFCFC9BF),
             fontSize = 9.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
@@ -185,8 +185,8 @@ fun M3ExpressiveModeSelector(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF14171D),
-        border = BorderStroke(1.dp, Color(0xFF282D37))
+        color = Color(0xFF1B1A18),
+        border = BorderStroke(1.dp, Color(0xFF3A3733))
     ) {
         Row(
             modifier = Modifier
@@ -267,12 +267,12 @@ private fun ExpressiveModeTab(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(if (isSelected) activeColor else Color(0xFF4B5563))
+                        .background(if (isSelected) activeColor else Color(0xFF5C574F))
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = title,
-                    color = if (isSelected) Color(0xFFF3F4F6) else Color(0xFF9CA3AF),
+                    color = if (isSelected) Color(0xFFF2EEE7) else Color(0xFF9A948A),
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
@@ -282,7 +282,7 @@ private fun ExpressiveModeTab(
             Spacer(modifier = Modifier.height(1.dp))
             Text(
                 text = subtitle,
-                color = if (isSelected) Color(0xFFD1D5DB) else Color(0xFF6B7280),
+                color = if (isSelected) Color(0xFFCFC9BF) else Color(0xFF7A746B),
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
@@ -303,8 +303,8 @@ fun PulsingAuroraButton(
     modifier: Modifier = Modifier,
     leadingIcon: @Composable (() -> Unit)? = null
 ) {
-    val bgColor = if (isRunning) Color(0xFFDC2626) else Color(0xFF2563EB)
-    val borderColor = if (isRunning) Color(0xFFF87171).copy(alpha = 0.4f) else Color(0xFF60A5FA).copy(alpha = 0.35f)
+    val bgColor = if (isRunning) Color(0xFFCF4F3A) else Color(0xFFD9482D)
+    val borderColor = if (isRunning) Color(0xFFEE7A60).copy(alpha = 0.4f) else Color(0xFFEE7A60).copy(alpha = 0.35f)
 
     Box(
         modifier = modifier

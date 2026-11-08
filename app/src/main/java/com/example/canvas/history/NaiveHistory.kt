@@ -12,10 +12,14 @@ import kotlinx.coroutines.sync.withLock
  * Serves as the worst-case memory baseline (easily triggers OOM with large canvas/strokes).
  */
 class NaiveHistory(
-    private val maxRedoSteps: Int = 20
+    /** Optional hard cap on redo steps; null (default) means free memory alone decides. */
+    private val maxRedoSteps: Int? = null
 ) : HistoryManager {
 
     override val mode: HistoryMode = HistoryMode.NAIVE
+
+    /** Not used: full-canvas snapshots are always restored exactly (no merge). */
+    override var opRenderer: ((android.graphics.Canvas, com.example.canvas.core.StrokeOp) -> Unit)? = null
 
     private val mutex = Mutex()
     private val undoStack = ArrayDeque<Patch>()
@@ -47,11 +51,14 @@ class NaiveHistory(
                 bitmap = redoBitmap,
                 sizeBytes = redoBitmap.allocationByteCount.toLong()
             )
-            if (redoStack.size >= maxRedoSteps) {
-                val oldest = redoStack.removeFirst()
-                oldest.recycle()
-            }
             redoStack.addLast(redoPatch)
+            // every redo step is a full canvas: keep only as many as leave room for the next one
+            while (redoStack.size > 1 &&
+                (maxRedoSteps?.let { redoStack.size > it } == true ||
+                    redoPatch.sizeBytes * 2 > MemorySignal.free())
+            ) {
+                redoStack.removeFirst().recycle()
+            }
         }
 
         // Apply before patch onto canvas

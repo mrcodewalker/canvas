@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -255,7 +256,7 @@ class BenchmarkExperimentSuiteTest {
     fun testExperimentE4_ContinuousUndoPrefetch_Suite() = runTest {
         val warmStore = WarmStore()
         val coldStore = ColdStore(coldDir)
-        val prefetcher = Prefetcher(coldStore, warmStore, k = 5)
+        val prefetcher = Prefetcher(coldStore, warmStore)
 
         val raw = ByteArray(10_000) { 1 }
         val comp = PatchCodec.compress(raw)
@@ -278,8 +279,9 @@ class BenchmarkExperimentSuiteTest {
 
         for (i in (patches.size - 1) downTo 0) {
             val target = patches[i]
-            // Trigger prefetch for next K older patches
-            prefetcher.prefetchNextK(patches.subList(0, i), scope = this)
+            // Adaptive prefetch of the next older patches
+            prefetcher.onUndo()
+            prefetcher.prefetchAhead(patches.subList(0, i), scope = this)
 
             if (target.state == PatchState.WARM) {
                 hits++
@@ -417,8 +419,11 @@ class BenchmarkExperimentSuiteTest {
     }
 
     /**
-     * Generates the comprehensive E1-E6 Benchmark Summary CSV report.
+     * DISABLED: the values below are hand-written placeholders, not measurements. Writing them to a CSV that a
+     * report then cites as "measured" is misleading. Real numbers must come from on-device runs
+     * (BenchmarkActivity + CsvExporter); delete this test once they do.
      */
+    @Ignore("placeholder numbers - not measured; produce the CSV from real on-device runs")
     @Test
     fun testGenerateFullBenchmarkCsvReport() = runTest {
         val summaries = listOf(

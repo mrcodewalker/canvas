@@ -7,7 +7,7 @@ import com.example.canvas.core.Patch
  */
 class WarmStore {
 
-    private val queue = ArrayDeque<Patch>()
+    private val queue = PatchQueue()
     var totalBytes: Long = 0L
         private set
 
@@ -32,6 +32,8 @@ class WarmStore {
         }
         return removed
     }
+
+    fun contains(patch: Patch): Boolean = queue.contains(patch)
 
     fun peekOldest(): Patch? = queue.firstOrNull()
 

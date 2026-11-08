@@ -31,6 +31,8 @@ enum class PatchState {
  * @param sizeBytes Byte size of current representation.
  * @param rawLength Uncompressed pixel byte length (width * height * 4).
  * @param crc32 Checksum for integrity verification.
+ * @param groupId Patches of one stroke captured as several dirty tiles share the same non-zero
+ *   groupId and are undone/redone atomically. 0 means a standalone patch.
  */
 data class Patch(
     val id: Long,
@@ -41,9 +43,23 @@ data class Patch(
     @Volatile var filePath: String? = null,
     @Volatile var sizeBytes: Long = 0L,
     @Volatile var rawLength: Int = 0,
-    @Volatile var crc32: Long = 0L
+    @Volatile var crc32: Long = 0L,
+    /** True once the Cold file was already squeezed at the high compression level (or gains nothing). */
+    @Volatile var deepCompressed: Boolean = false,
+    val groupId: Long = 0L,
+    /** What was drawn by this step; lets redo replay it on a changed canvas. Null = pixels only. */
+    val op: StrokeOp? = null,
+    /** 1-based number of the stroke this patch belongs to (for display); 0 = unknown. */
+    @Volatile var strokeNo: Int = 0
 ) {
+    /** Deflate level the Warm bytes of this patch were compressed with (0 = not compressed yet). */
+    @Volatile var warmLevel: Int = 0
+
+    /** Unique per instance (not part of equals/hashCode): lets the stores find a patch in O(1). */
+    val uid: Long = uidCounter.incrementAndGet()
+
     companion object {
+        private val uidCounter = java.util.concurrent.atomic.AtomicLong()
         private val srcPaint by lazy {
             Paint().apply {
                 xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)

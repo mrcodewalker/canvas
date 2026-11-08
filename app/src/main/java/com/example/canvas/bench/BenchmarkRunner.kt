@@ -22,9 +22,28 @@ import java.util.zip.CRC32
 class BenchmarkRunner(
     private val historyManager: HistoryManager,
     private val canvasWidth: Int = 2048,
-    private val canvasHeight: Int = 2048
+    private val canvasHeight: Int = 2048,
+    /** true = patch only the dirty tiles a stroke touches instead of its whole bounding box. */
+    private val tilingEnabled: Boolean = false
 ) {
     private val strokeRenderer = StrokeRenderer()
+
+    @Volatile private var liveCanvas: Bitmap? = null
+
+    /** Live metrics of the run in progress (null before it starts); read-only for the UI. */
+    @Volatile var liveCollector: MetricsCollector? = null
+        private set
+
+    /** A small copy of the canvas being drawn right now, or null if no run is active. Safe to call from any thread. */
+    fun snapshot(maxSide: Int): Bitmap? {
+        val src = liveCanvas ?: return null
+        return try {
+            val scale = maxSide.toFloat() / maxOf(src.width, src.height)
+            Bitmap.createScaledBitmap(src, (src.width * scale).toInt().coerceAtLeast(1), (src.height * scale).toInt().coerceAtLeast(1), true)
+        } catch (_: Throwable) {
+            null // recycled or out of memory: skip this frame
+        }
+    }
 
     /**
      * Executes the configured benchmark scenario.
@@ -67,6 +86,8 @@ class BenchmarkRunner(
             0L
         }
 
+        liveCollector = collector
+        liveCanvas = backingBitmap
         collector.start()
         sampler.start(scope)
 
@@ -146,6 +167,7 @@ class BenchmarkRunner(
             collector.recordSample(sampler.captureSnapshot())
             collector.recordHistoryStats(historyManager.stats())
             historyManager.clear()
+            liveCanvas = null
             backingBitmap.recycle()
             System.gc()
         }
@@ -420,7 +442,7 @@ class BenchmarkRunner(
     }
 
     private suspend fun commitStroke(bitmap: Bitmap, canvas: Canvas, stroke: com.example.canvas.core.Stroke) {
-        val beforePatch = if (historyManager.mode == HistoryMode.NAIVE) {
+        val beforePatches: List<Patch> = if (historyManager.mode == HistoryMode.NAIVE) {
             if (canvasWidth >= 1024 && canvasHeight >= 1024) {
                 val requiredBytes = canvasWidth.toLong() * canvasHeight.toLong() * 4L
                 val currentHotBytes = historyManager.stats().hotBytes
@@ -433,18 +455,22 @@ class BenchmarkRunner(
             }
             val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                 ?: throw OutOfMemoryError("Bitmap.copy failed to allocate full canvas")
-            Patch(
-                id = System.nanoTime(),
-                rect = Rect(0, 0, canvasWidth, canvasHeight),
-                bitmap = copy,
-                sizeBytes = copy.allocationByteCount.toLong()
+            listOf(
+                Patch(
+                    id = System.nanoTime(),
+                    rect = Rect(0, 0, canvasWidth, canvasHeight),
+                    bitmap = copy,
+                    sizeBytes = copy.allocationByteCount.toLong()
+                )
             )
         } else {
-            val bounds = stroke.computeBounds(canvasWidth, canvasHeight)
-            val w = bounds.width().coerceAtLeast(1)
-            val h = bounds.height().coerceAtLeast(1)
+            val regions = if (tilingEnabled) {
+                stroke.computeDirtyRegions(canvasWidth, canvasHeight)
+            } else {
+                listOf(stroke.computeBounds(canvasWidth, canvasHeight))
+            }
             if (historyManager.mode == HistoryMode.DIRTY_RECT && canvasWidth >= 1024 && canvasHeight >= 1024) {
-                val requiredBytes = w.toLong() * h.toLong() * 4L
+                val requiredBytes = regions.sumOf { it.width().coerceAtLeast(1).toLong() * it.height().coerceAtLeast(1) * 4L }
                 val currentHotBytes = historyManager.stats().hotBytes
                 val rt = Runtime.getRuntime()
                 val safeCapBytes = kotlin.math.min((rt.maxMemory() * 0.58).toLong(), 160L * 1024L * 1024L)
@@ -453,23 +479,27 @@ class BenchmarkRunner(
                     throw OutOfMemoryError("Chạm trần bảo vệ Cận-OOM (${currentHotBytes / (1024 * 1024)} MB) trong Benchmark DIRTY_RECT")
                 }
             }
-            val patchBmp = Bitmap.createBitmap(
-                bitmap,
-                bounds.left,
-                bounds.top,
-                w,
-                h
-            )
-            Patch(
-                id = System.nanoTime(),
-                rect = bounds,
-                bitmap = patchBmp,
-                sizeBytes = patchBmp.allocationByteCount.toLong()
-            )
+            val groupId = if (regions.size > 1) System.nanoTime() else 0L
+            regions.mapIndexed { i, rect ->
+                val patchBmp = Bitmap.createBitmap(
+                    bitmap,
+                    rect.left,
+                    rect.top,
+                    rect.width().coerceAtLeast(1),
+                    rect.height().coerceAtLeast(1)
+                )
+                Patch(
+                    id = System.nanoTime() + i,
+                    rect = rect,
+                    bitmap = patchBmp,
+                    sizeBytes = patchBmp.allocationByteCount.toLong(),
+                    groupId = groupId
+                )
+            }
         }
 
         strokeRenderer.renderStroke(canvas, stroke)
-        historyManager.commit(beforePatch)
+        for (p in beforePatches) historyManager.commit(p)
     }
 
     private fun computePixelCrc32(bitmap: Bitmap): Long {

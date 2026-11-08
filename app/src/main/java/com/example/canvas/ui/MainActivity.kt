@@ -67,6 +67,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -104,6 +105,21 @@ import com.example.canvas.ui.compose.M3ExpressiveModeSelector
 import com.example.canvas.ui.compose.ModeEvaluationMetrics
 import com.example.canvas.ui.compose.PulsingAuroraButton
 import com.example.canvas.ui.compose.SwamComparisonReport
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateListOf
+import com.example.canvas.history.TierCell
+import com.example.canvas.history.TierEvent
+import com.example.canvas.ui.compose.TierTrackerPanel
+import com.example.canvas.ui.theme.CyberSurface
+import com.example.canvas.ui.theme.InkText
+import com.example.canvas.ui.compose.LabSheet
+import com.example.canvas.ui.compose.MemoryPill
+import com.example.canvas.ui.compose.StatusStrip
+import com.example.canvas.ui.compose.StudioTopBar
+import com.example.canvas.ui.compose.ToolDock
+import com.example.canvas.ui.theme.FaintText
+import com.example.canvas.ui.theme.MutedText
 import com.example.canvas.ui.compose.SwamDemoReportModal
 import com.example.canvas.ui.compose.SwamPaperSheet
 import com.example.canvas.ui.theme.AmberGold
@@ -128,11 +144,6 @@ enum class StudioBrushTool(val label: String) {
     ERASER("Tẩy")
 }
 
-enum class DockTabMode {
-    CREATIVE_STUDIO,
-    SWAM_DEMO
-}
-
 class MainActivity : ComponentActivity() {
 
     private var drawingViewRef: DrawingView? = null
@@ -152,7 +163,13 @@ class MainActivity : ComponentActivity() {
     private var isXRayVisible by mutableStateOf(true)
     private var isXRayMinimized by mutableStateOf(true)
     private var showSwamSheet by mutableStateOf(false)
-    private var dockTabMode by mutableStateOf(DockTabMode.CREATIVE_STUDIO)
+
+    // Tier tracker: what happens to each stroke while drawing
+    private var trackerVisible by mutableStateOf(false)
+    private val tierEvents = mutableStateListOf<TierEvent>()   // newest first
+    private var tierCells by mutableStateOf<List<TierCell>>(emptyList())
+    private var trackerStartMs by mutableStateOf(0L)
+    private var showClearConfirm by mutableStateOf(false)
 
     // Auto 3-Mode Demo & Result Report Modal states
     private var isAutoDemoRunning by mutableStateOf(false)
@@ -172,12 +189,12 @@ class MainActivity : ComponentActivity() {
 
     // Canvas & Tool States
     private var activeTool by mutableStateOf(StudioBrushTool.INK_PEN)
-    private var selectedBaseColor by mutableIntStateOf(AndroidColor.parseColor("#0F172A"))
+    private var selectedBaseColor by mutableIntStateOf(AndroidColor.parseColor("#1C1B1A"))
     private var selectedStrokeWidth by mutableFloatStateOf(20f)
     private var showDirtyRectBox by mutableStateOf(true)
     private var showPaperGrid by mutableStateOf(false)
     private var currentZoomScale by mutableFloatStateOf(1f)
-    private var lastPatchSummary by mutableStateOf("2048×2048 px • Chụm 2 ngón để thu phóng")
+    private var lastPatchSummary by mutableStateOf("Chụm hai ngón để thu phóng")
 
     private var demoState by mutableStateOf(DemoState(isRunning = false))
     private var currentTierConfig by mutableStateOf(
@@ -193,6 +210,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.canvas.history.MemorySignal.install(this)
         enableEdgeToEdge()
 
         setupDemoRunner()
@@ -202,6 +220,62 @@ class MainActivity : ComponentActivity() {
                 PixelProStudioScreen()
             }
         }
+    }
+
+    /** Adds an event to the feed; the tiles of one stroke that move together become one line. */
+    private fun pushTierEvent(e: TierEvent) {
+        val last = tierEvents.firstOrNull()
+        if (last != null && last.kind == e.kind && last.stroke == e.stroke && e.timeMs - last.timeMs < 600) {
+            tierEvents[0] = last.copy(
+                bytesBefore = last.bytesBefore + e.bytesBefore,
+                bytesAfter = last.bytesAfter + e.bytesAfter,
+                tiles = last.tiles + e.tiles
+            )
+        } else {
+            tierEvents.add(0, e)
+            while (tierEvents.size > 200) tierEvents.removeAt(tierEvents.size - 1)
+        }
+    }
+
+    /** Starts or stops feeding the tracker from the current history (only Tiered has tiers to watch). */
+    private fun bindTracker() {
+        val mgr = drawingViewRef?.historyManager as? TieredHistory ?: return
+        if (trackerVisible) {
+            mgr.events.listener = { e -> runOnUiThread { pushTierEvent(e) } }
+            mgr.tierMapListener = { cells -> runOnUiThread { tierCells = cells } }
+            mgr.requestTierMap()
+        } else {
+            mgr.events.listener = null
+            mgr.tierMapListener = null
+        }
+    }
+
+    private fun toggleTracker() {
+        trackerVisible = !trackerVisible
+        if (trackerVisible) {
+            isXRayMinimized = true          // one panel at a time: the tracker is the detailed view
+            trackerStartMs = System.currentTimeMillis()
+            tierEvents.clear()
+            tierCells = emptyList()
+        }
+        bindTracker()
+    }
+
+    private fun performClear() {
+        burstJob?.cancel()
+        isBurstRunning = false
+        oomAlertMessage = null
+        drawingViewRef?.clearCanvas()
+        lastPatchSummary = "Đã xóa bản vẽ"
+        tierEvents.clear()
+        tierCells = emptyList()
+        refreshTelemetrySnapshot()
+    }
+
+    private fun modeLabel(mode: HistoryMode): String = when (mode) {
+        HistoryMode.NAIVE -> "Naive"
+        HistoryMode.DIRTY_RECT -> "Dirty rect"
+        HistoryMode.TIERED -> "Tiered"
     }
 
     private fun computeEffectiveStrokeColor(): Int {
@@ -237,7 +311,11 @@ class MainActivity : ComponentActivity() {
             val w = patch.rect.width()
             val h = patch.rect.height()
             val kb = patch.sizeBytes / 1024
-            lastPatchSummary = "[${currentMode.name}] Bước #${view.historyManager.stats().totalSteps}: ${w}×${h} px (${kb} KB)"
+            // Real saved area (sum of dirty tiles, 4 bytes/px) versus the stroke's bounding box
+            val coveredPx = patch.sizeBytes / 4
+            val boxPx = (w.toLong() * h).coerceAtLeast(1L)
+            val pct = if (currentMode == HistoryMode.NAIVE) 100L else (coveredPx * 100L / boxPx).coerceAtMost(100L)
+            lastPatchSummary = "Bước ${view.historyManager.stats().totalSteps} · lưu ${coveredPx / 1000}k px, ${pct}% khung bao · ${kb} KB"
             refreshTelemetrySnapshot()
         }
         view.onOomCaught = { msg ->
@@ -294,11 +372,21 @@ class MainActivity : ComponentActivity() {
             HistoryMode.DIRTY_RECT -> DirtyRectHistory()
             HistoryMode.TIERED -> TieredHistory.create(this, currentTierConfig).also {
                 it.prefetcher.isEnabled = prefetchEnabled
+                it.onHistoryTrimmed = { dropped, left ->
+                    runOnUiThread {
+                        lastPatchSummary =
+                            "Ổ đĩa gần đầy: đã bỏ $dropped nét undo cũ nhất, còn $left bước có thể hoàn tác"
+                        refreshTelemetrySnapshot()
+                    }
+                }
             }
         }
         view.historyManager = newManager
+        tierEvents.clear()
+        tierCells = emptyList()
+        bindTracker()
         memorySampler?.updateHistoryManager(newManager)
-        lastPatchSummary = "Chế độ ${mode.name} sẵn sàng"
+        lastPatchSummary = "${modeLabel(mode)} sẵn sàng"
         refreshTelemetrySnapshot()
     }
 
@@ -749,1440 +837,373 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun PixelProStudioScreen() {
-        Column(
+        var showLab by remember { mutableStateOf(false) }
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(CyberObsidian)
-                .systemBarsPadding()
         ) {
-            // 1. Responsive Top Studio Header (With Prominent 🎬 DEMO 3 MODE Button at Top!)
-            PixelProResponsiveHeader(
-                mode = currentMode,
-                totalSteps = currentTelemetry.totalSteps,
-                redoSteps = currentTelemetry.redoSteps,
-                zoomScale = currentZoomScale,
-                isXRayVisible = isXRayVisible,
-                isXRayMinimized = isXRayMinimized,
-                isAutoDemoRunning = isAutoDemoRunning,
-                hasReportReady = latestDemoReport != null,
-                onSelectMode = { mode ->
-                    switchMode(mode)
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Đã chọn chế độ: ${mode.name}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                },
-                onUndo = {
-                    drawingViewRef?.undo { undone ->
-                        refreshTelemetrySnapshot()
-                        if (!undone) {
-                            Toast.makeText(this@MainActivity, "Đã hoàn tác về bước đầu!", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                },
-                onRedo = {
-                    drawingViewRef?.redo { redone ->
-                        refreshTelemetrySnapshot()
-                        if (!redone) {
-                            Toast.makeText(this@MainActivity, "Không có bước Redo", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                },
-                onResetZoom = { drawingViewRef?.resetViewport() },
-                onStartTopAutoDemo = { startThreeModeAutoDemo() },
-                onOpenLastReport = { showDemoReportModal = true },
-                onToggleXRay = {
-                    if (!isXRayVisible) {
-                        isXRayVisible = true
-                        isXRayMinimized = false
-                    } else {
-                        isXRayMinimized = !isXRayMinimized
-                    }
-                },
-                onOpenSwamSheet = { showSwamSheet = true },
-                onOpenBenchmark = {
-                    startActivity(Intent(this@MainActivity, BenchmarkActivity::class.java))
-                }
-            )
-
-            // 2. Live Auto 3-Mode Demo Banner
-            AnimatedVisibility(
-                visible = isAutoDemoRunning,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
-                    AutoThreeModeDemoBanner(
-                        phaseTitle = autoDemoPhaseTitle,
-                        instruction = autoDemoInstruction,
-                        progress = autoDemoProgress,
-                        onStop = {
-                            autoDemoJob?.cancel()
-                            isAutoDemoRunning = false
-                        }
-                    )
-                }
-            }
-
-            // 3. Live OOM Crash Alert Banner (When NAIVE or DIRTY_RECT hits OutOfMemoryError during manual +50 / +200 test!)
-            AnimatedVisibility(
-                visible = oomAlertMessage != null,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                oomAlertMessage?.let { msg ->
-                    Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
-                        OomCaughtAlertBanner(
-                            message = msg,
-                            onClearCurrentRam = {
-                                oomAlertMessage = null
-                                drawingViewRef?.historyManager?.clear()
-                                System.gc()
-                                refreshTelemetrySnapshot()
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    "Đã giải phóng toàn bộ RAM Lịch sử trên chế độ ${currentMode.name}!",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            onSwitchToTiered = {
-                                oomAlertMessage = null
-                                switchMode(HistoryMode.TIERED)
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    "Đã chuyển sang TIERED SWAM (Undo Vô Hạn)!",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            onDismiss = { oomAlertMessage = null }
-                        )
-                    }
-                }
-            }
-
-            // 4. Live Burst (+50 / +200 / Batch Undo) Progress Banner
-            AnimatedVisibility(
-                visible = isBurstRunning,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
-                    BurstProgressBanner(
-                        label = burstLabel,
-                        current = burstProgressCurrent,
-                        total = burstProgressTotal,
-                        onStop = {
-                            burstJob?.cancel()
-                            isBurstRunning = false
-                        }
-                    )
-                }
-            }
-
-            // 5. Demo Progress Banner (When 3-Minute Live Demo is active)
-            AnimatedVisibility(
-                visible = demoState.isRunning,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
-                    DemoScenarioBannerCard(
-                        state = demoState,
-                        onStop = {
-                            demoRunner?.stop()
-                            Toast.makeText(this@MainActivity, "Đã dừng Demo", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-            }
-
-            // 6. Dedicated Full-Stage Central Artboard Workspace (Canvas NEVER shrinks when X-Ray opens!)
-            Box(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
+                    .fillMaxSize()
+                    .systemBarsPadding()
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        DrawingView(ctx).also { attachDrawingView(it) }
+                StudioTopBar(
+                    mode = currentMode,
+                    canUndo = currentTelemetry.totalSteps > 0,
+                    canRedo = currentTelemetry.redoSteps > 0,
+                    zoomScale = currentZoomScale,
+                    trackerOpen = trackerVisible,
+                    onUndo = {
+                        drawingViewRef?.undo { undone ->
+                            refreshTelemetrySnapshot()
+                            if (!undone) {
+                                Toast.makeText(this@MainActivity, "Đã hoàn tác về bước đầu", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
-                    update = { view ->
-                        view.strokeColor = computeEffectiveStrokeColor()
-                        view.strokeWidth = selectedStrokeWidth
-                        view.showDirtyRectOverlay = showDirtyRectBox
-                        view.showPaperGrid = showPaperGrid
+                    onRedo = {
+                        drawingViewRef?.redo { redone ->
+                            refreshTelemetrySnapshot()
+                            if (!redone) {
+                                Toast.makeText(this@MainActivity, "Không còn bước để làm lại", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    onSelectMode = { mode -> switchMode(mode) },
+                    onResetZoom = { drawingViewRef?.resetViewport() },
+                    onToggleTracker = { toggleTracker() },
+                    onClearCanvas = { showClearConfirm = true },
+                    onOpenLab = { showLab = true }
                 )
 
-                // Floating Glassmorphic X-Ray Telemetry HUD Overlay at Top-Center of Workspace
+                // The workspace: the canvas is full-bleed; everything else floats over the desk
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .weight(1f)
                 ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = isXRayVisible,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        ChronosXRayHud(
-                            telemetry = currentTelemetry,
-                            points = telemetryPoints,
-                            mode = currentMode,
-                            isMinimized = isXRayMinimized,
-                            onToggleMinimize = { isXRayMinimized = !isXRayMinimized },
-                            onClose = { isXRayVisible = false },
-                            onOpenSwamSheet = { showSwamSheet = true }
-                        )
-                    }
-                }
-
-                // Floating status badge at bottom-left of desk
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xD9181B21),
-                    border = BorderStroke(1.dp, Color(0xFF2E333E)),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 10.dp, bottom = 6.dp)
-                ) {
-                    Text(
-                        text = lastPatchSummary,
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 9.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-
-                // Floating Bounding-Box Selection Toggle at bottom-right of desk
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (showDirtyRectBox) Color(0xE61E293B) else Color(0xD9181B21),
-                    border = BorderStroke(
-                        1.dp,
-                        if (showDirtyRectBox) SkyBlue.copy(alpha = 0.65f) else Color(0xFF2E333E)
-                    ),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 10.dp, bottom = 6.dp)
-                        .clickable {
-                            showDirtyRectBox = !showDirtyRectBox
-                            syncBrushToView()
-                            drawingViewRef?.invalidate()
-                        }
-                ) {
-                    Text(
-                        text = if (showDirtyRectBox) "Khung bao: Bật" else "Khung bao: Tắt",
-                        color = if (showDirtyRectBox) SkyBlue else Color(0xFF9CA3AF),
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
-
-            // 8. Bottom Studio & Test Dock
-            PixelProResponsiveDock(
-                dockTab = dockTabMode,
-                activeTool = activeTool,
-                selectedColor = selectedBaseColor,
-                selectedWidth = selectedStrokeWidth,
-                currentMode = currentMode,
-                burstStrokeType = burstStrokeType,
-                showDirtyRectBox = showDirtyRectBox,
-                showPaperGrid = showPaperGrid,
-                isDemoRunning = isAutoDemoRunning || demoState.isRunning,
-                isBurstRunning = isBurstRunning,
-                totalSteps = currentTelemetry.totalSteps,
-                onSelectDockTab = { tab ->
-                    dockTabMode = tab
-                    if (tab == DockTabMode.SWAM_DEMO) {
-                        showDirtyRectBox = true
-                        isXRayVisible = true
-                    }
-                    syncBrushToView()
-                    drawingViewRef?.invalidate()
-                },
-                onSelectTool = { tool ->
-                    activeTool = tool
-                    syncBrushToView()
-                },
-                onSelectColor = { color ->
-                    selectedBaseColor = color
-                    if (activeTool == StudioBrushTool.ERASER) {
-                        activeTool = StudioBrushTool.INK_PEN
-                    }
-                    syncBrushToView()
-                },
-                onSelectWidth = { width ->
-                    selectedStrokeWidth = width
-                    syncBrushToView()
-                },
-                onToggleBurstStrokeType = {
-                    burstStrokeType = if (burstStrokeType == StrokeType.LARGE) StrokeType.SMALL else StrokeType.LARGE
-                },
-                onToggleGrid = {
-                    showPaperGrid = !showPaperGrid
-                    syncBrushToView()
-                    drawingViewRef?.invalidate()
-                },
-                onToggleDirtyRect = {
-                    showDirtyRectBox = !showDirtyRectBox
-                    syncBrushToView()
-                    drawingViewRef?.invalidate()
-                },
-                onFillCanvas = {
-                    try {
-                        drawingViewRef?.fillCanvas(selectedBaseColor)
-                        refreshTelemetrySnapshot()
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Đã đổ màu toàn bộ Canvas 2048×2048 (16 MiB)",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } catch (oom: OutOfMemoryError) {
-                        System.gc()
-                        oomAlertMessage = "Chạm giới hạn bộ nhớ khi đổ màu 16 MB ở chế độ ${currentMode.name}."
-                    }
-                },
-                onClearCanvas = {
-                    burstJob?.cancel()
-                    isBurstRunning = false
-                    oomAlertMessage = null
-                    drawingViewRef?.clearCanvas()
-                    lastPatchSummary = "Đã xóa trắng bản vẽ (${currentMode.name})"
-                    refreshTelemetrySnapshot()
-                },
-                onBurstDraw = { count ->
-                    burstDrawSteps(count)
-                },
-                onBurstUndo = { count ->
-                    burstUndoSteps(count)
-                },
-                onStressMemory = {
-                    @Suppress("DEPRECATION")
-                    drawingViewRef?.historyManager?.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
-                    lifecycleScope.launch {
-                        delay(80L)
-                        refreshTelemetrySnapshot()
-                    }
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Đã thu hồi bộ nhớ đệm Hot trên chế độ ${currentMode.name}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                },
-                onRunOomCleaner = {
-                    val mgr = drawingViewRef?.historyManager
-                    if (mgr is TieredHistory) {
-                        lifecycleScope.launch {
-                            val saved = mgr.runOomCleaner()
-                            refreshTelemetrySnapshot()
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Đã gộp trang trùng lặp CRC32: thu hồi ${saved / 1024} KB",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    } else {
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Chức năng gộp trùng lặp chỉ áp dụng cho chế độ Tiered",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                },
-                onToggleDemo = {
-                    startThreeModeAutoDemo()
-                }
-            )
-        }
-
-        // Full-Screen Mathematical & Visual Result Report Modal
-        if (showDemoReportModal && latestDemoReport != null) {
-            SwamDemoReportModal(
-                report = latestDemoReport!!,
-                onRerunDemo = {
-                    showDemoReportModal = false
-                    startThreeModeAutoDemo()
-                },
-                onDismiss = { showDemoReportModal = false }
-            )
-        }
-
-        // Architecture & Configuration Sheet
-        if (showSwamSheet) {
-            SwamPaperSheet(
-                currentConfig = currentTierConfig,
-                prefetchEnabled = prefetchEnabled,
-                telemetry = currentTelemetry,
-                onUpdateConfig = { updated ->
-                    currentTierConfig = updated
-                    val mgr = drawingViewRef?.historyManager
-                    if (mgr is TieredHistory) {
-                        mgr.updateTierConfig(updated)
-                        lifecycleScope.launch {
-                            delay(50L)
-                            refreshTelemetrySnapshot()
-                        }
-                    }
-                },
-                onTogglePrefetch = { enabled ->
-                    prefetchEnabled = enabled
-                    val mgr = drawingViewRef?.historyManager
-                    if (mgr is TieredHistory) {
-                        mgr.prefetcher.isEnabled = enabled
-                    }
-                },
-                onRunOomCleaner = {
-                    val mgr = drawingViewRef?.historyManager
-                    if (mgr is TieredHistory) {
-                        lifecycleScope.launch {
-                            val saved = mgr.runOomCleaner()
-                            refreshTelemetrySnapshot()
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Đã giải phóng ${saved / 1024} KB trang trùng lặp",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
-                },
-                onBurstInfiniteUndoTest = { steps ->
-                    burstDrawSteps(steps)
-                },
-                onDismiss = { showSwamSheet = false }
-            )
-        }
-    }
-}
-
-/**
- * Clean Material 3 interactive button surface.
- */
-@Composable
-fun ResponsiveBouncyButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    containerColor: Color = Color(0xFF22262F),
-    borderColor: Color = Color(0xFF2E333E),
-    shape: RoundedCornerShape = RoundedCornerShape(8.dp),
-    contentPaddingVertical: Int = 6,
-    contentPaddingHorizontal: Int = 8,
-    content: @Composable () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    Surface(
-        shape = shape,
-        color = if (isPressed) containerColor.copy(alpha = 0.75f) else containerColor,
-        border = BorderStroke(1.dp, borderColor),
-        modifier = modifier
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(
-                horizontal = contentPaddingHorizontal.dp,
-                vertical = contentPaddingVertical.dp
-            )
-        ) {
-            content()
-        }
-    }
-}
-
-@Composable
-private fun PixelProResponsiveHeader(
-    mode: HistoryMode,
-    totalSteps: Int,
-    redoSteps: Int,
-    zoomScale: Float,
-    isXRayVisible: Boolean,
-    isXRayMinimized: Boolean,
-    isAutoDemoRunning: Boolean,
-    hasReportReady: Boolean,
-    onSelectMode: (HistoryMode) -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onResetZoom: () -> Unit,
-    onStartTopAutoDemo: () -> Unit,
-    onOpenLastReport: () -> Unit,
-    onToggleXRay: () -> Unit,
-    onOpenSwamSheet: () -> Unit,
-    onOpenBenchmark: () -> Unit
-) {
-    val headerAccent = when (mode) {
-        HistoryMode.NAIVE -> CoralRose
-        HistoryMode.DIRTY_RECT -> AmberGold
-        HistoryMode.TIERED -> RadiantMint
-    }
-
-    AuroraGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        cornerRadius = 12.dp,
-        accentColors = listOf(headerAccent, NeonCyan, ElectricIndigo),
-        containerColor = Color(0xF2181B21)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // Row 1: Undo/Steps/Redo Capsule (Left) + Action Toolbar (Right)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Undo / Step Count / Redo Capsule
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF14171D),
-                    border = BorderStroke(1.dp, Color(0xFF282D37))
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 2.dp)
-                    ) {
-                        IconButton(
-                            onClick = onUndo,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Hoàn tác",
-                                tint = if (totalSteps > 0) Color(0xFFF3F4F6) else Color(0xFF6B7280),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        Text(
-                            text = "$totalSteps",
-                            color = Color(0xFFF3F4F6),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 5.dp)
-                        )
-
-                        IconButton(
-                            onClick = onRedo,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Redo,
-                                contentDescription = "Làm lại",
-                                tint = if (redoSteps > 0) Color(0xFFF3F4F6) else Color(0xFF6B7280),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Right Actions: Demo Button + Report + Profiler + Config + Benchmark
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    val zoomPct = (zoomScale * 100).toInt()
-                    if (zoomPct != 100) {
-                        ResponsiveBouncyButton(
-                            onClick = onResetZoom,
-                            containerColor = Color(0xFF22262F),
-                            borderColor = Color(0xFF383E4C),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPaddingHorizontal = 6,
-                            contentPaddingVertical = 5
-                        ) {
-                            Text(
-                                text = "$zoomPct%",
-                                color = Color(0xFFD1D5DB),
-                                fontSize = 9.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    PulsingAuroraButton(
-                        text = if (isAutoDemoRunning) "Dừng" else "So sánh 3 chế độ",
-                        isRunning = isAutoDemoRunning,
-                        onClick = onStartTopAutoDemo,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = if (isAutoDemoRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                contentDescription = "So sánh 3 chế độ",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
+                    AndroidView(
+                        factory = { ctx ->
+                            DrawingView(ctx).also { attachDrawingView(it) }
+                        },
+                        update = { view ->
+                            view.strokeColor = computeEffectiveStrokeColor()
+                            view.strokeWidth = selectedStrokeWidth
+                            view.showDirtyRectOverlay = showDirtyRectBox
+                            view.showPaperGrid = showPaperGrid
+                        },
+                        modifier = Modifier.fillMaxSize()
                     )
 
-                    if (hasReportReady && !isAutoDemoRunning) {
-                        ResponsiveBouncyButton(
-                            onClick = onOpenLastReport,
-                            containerColor = Color(0xFF22262F),
-                            borderColor = SkyBlue.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPaddingHorizontal = 7,
-                            contentPaddingVertical = 5
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Assessment,
-                                contentDescription = "Xem báo cáo",
-                                tint = SkyBlue,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
-
-                    ResponsiveBouncyButton(
-                        onClick = onToggleXRay,
-                        containerColor = if (isXRayVisible && !isXRayMinimized) Color(0xFF252B37) else Color(0xFF22262F),
-                        borderColor = if (isXRayVisible && !isXRayMinimized) SkyBlue.copy(alpha = 0.6f) else Color(0xFF2E333E),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingHorizontal = 7,
-                        contentPaddingVertical = 5
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Analytics,
-                            contentDescription = "Bộ nhớ",
-                            tint = if (isXRayVisible) SkyBlue else Color(0xFF9CA3AF),
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-
-                    ResponsiveBouncyButton(
-                        onClick = onOpenSwamSheet,
-                        containerColor = Color(0xFF22262F),
-                        borderColor = Color(0xFF2E333E),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingHorizontal = 7,
-                        contentPaddingVertical = 5
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "Cấu hình",
-                            tint = Color(0xFFD1D5DB),
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-
-                    ResponsiveBouncyButton(
-                        onClick = onOpenBenchmark,
-                        containerColor = Color(0xFF22262F),
-                        borderColor = Color(0xFF2E333E),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingHorizontal = 7,
-                        contentPaddingVertical = 5
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Science,
-                            contentDescription = "Benchmark",
-                            tint = Color(0xFFD1D5DB),
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
-            }
-
-            // Row 2: Clean Segmented Mode Selector
-            M3ExpressiveModeSelector(
-                selectedMode = mode,
-                onSelectMode = onSelectMode
-            )
-        }
-    }
-}
-
-@Composable
-private fun AutoThreeModeDemoBanner(
-    phaseTitle: String,
-    instruction: String,
-    progress: Float,
-    onStop: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xF5181B21),
-        border = BorderStroke(1.dp, SkyBlue.copy(alpha = 0.65f))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "$phaseTitle (${(progress * 100).toInt()}%)",
-                    color = Color(0xFFF3F4F6),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                ResponsiveBouncyButton(
-                    onClick = onStop,
-                    containerColor = Color(0xFFDC2626),
-                    borderColor = Color(0xFFF87171).copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPaddingHorizontal = 8,
-                    contentPaddingVertical = 3
-                ) {
-                    Text(
-                        text = "Dừng",
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(5.dp))
-            LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = SkyBlue,
-                trackColor = Color(0xFF282D37)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = instruction,
-                color = Color(0xFFD1D5DB),
-                fontSize = 10.5.sp,
-                lineHeight = 14.5.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun OomCaughtAlertBanner(
-    message: String,
-    onClearCurrentRam: () -> Unit,
-    onSwitchToTiered: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xF5221619),
-        border = BorderStroke(1.dp, CoralRose.copy(alpha = 0.75f))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.WarningAmber,
-                        contentDescription = null,
-                        tint = CoralRose,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Cảnh báo giới hạn bộ nhớ Heap",
-                        color = CoralRose,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(22.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Đóng",
-                        tint = Color(0xFFD1D5DB),
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = message,
-                color = Color(0xFFE5E7EB),
-                fontSize = 10.5.sp,
-                lineHeight = 14.5.sp
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                ResponsiveBouncyButton(
-                    onClick = onClearCurrentRam,
-                    containerColor = Color(0xFF2D1E22),
-                    borderColor = CoralRose.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 5,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = "Giải phóng RAM",
-                        color = Color(0xFFF3F4F6),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                ResponsiveBouncyButton(
-                    onClick = onSwitchToTiered,
-                    containerColor = Color(0xFF2563EB),
-                    borderColor = Color(0xFF60A5FA).copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 5,
-                    modifier = Modifier.weight(1.3f)
-                ) {
-                    Text(
-                        text = "Chuyển sang Tiered",
-                        color = Color.White,
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BurstProgressBanner(
-    label: String,
-    current: Int,
-    total: Int,
-    onStop: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xF2181B21),
-        border = BorderStroke(1.dp, Color(0xFF2E333E))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = label,
-                    color = Color(0xFFF3F4F6),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                ResponsiveBouncyButton(
-                    onClick = onStop,
-                    containerColor = Color(0xFFDC2626),
-                    borderColor = Color(0xFFF87171).copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPaddingHorizontal = 8,
-                    contentPaddingVertical = 3
-                ) {
-                    Text(
-                        text = "Dừng",
-                        color = Color.White,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { (current.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = SkyBlue,
-                trackColor = Color(0xFF282D37)
-            )
-        }
-    }
-}
-
-@Composable
-private fun PixelProResponsiveDock(
-    dockTab: DockTabMode,
-    activeTool: StudioBrushTool,
-    selectedColor: Int,
-    selectedWidth: Float,
-    currentMode: HistoryMode,
-    burstStrokeType: StrokeType,
-    showDirtyRectBox: Boolean,
-    showPaperGrid: Boolean,
-    isDemoRunning: Boolean,
-    isBurstRunning: Boolean,
-    totalSteps: Int,
-    onSelectDockTab: (DockTabMode) -> Unit,
-    onSelectTool: (StudioBrushTool) -> Unit,
-    onSelectColor: (Int) -> Unit,
-    onSelectWidth: (Float) -> Unit,
-    onToggleBurstStrokeType: () -> Unit,
-    onToggleGrid: () -> Unit,
-    onToggleDirtyRect: () -> Unit,
-    onFillCanvas: () -> Unit,
-    onClearCanvas: () -> Unit,
-    onBurstDraw: (Int) -> Unit,
-    onBurstUndo: (Int) -> Unit,
-    onStressMemory: () -> Unit,
-    onRunOomCleaner: () -> Unit,
-    onToggleDemo: () -> Unit
-) {
-    val proPalette = listOf(
-        AndroidColor.parseColor("#0F172A") to Color(0xFF0F172A),
-        AndroidColor.parseColor("#EF4444") to Color(0xFFEF4444),
-        AndroidColor.parseColor("#F97316") to Color(0xFFF97316),
-        AndroidColor.parseColor("#F59E0B") to Color(0xFFF59E0B),
-        AndroidColor.parseColor("#10B981") to Color(0xFF10B981),
-        AndroidColor.parseColor("#06B6D4") to Color(0xFF06B6D4),
-        AndroidColor.parseColor("#3B82F6") to Color(0xFF3B82F6),
-        AndroidColor.parseColor("#6366F1") to Color(0xFF6366F1),
-        AndroidColor.parseColor("#8B5CF6") to Color(0xFF8B5CF6),
-        AndroidColor.parseColor("#EC4899") to Color(0xFFEC4899),
-        AndroidColor.parseColor("#78350F") to Color(0xFF78350F),
-        AndroidColor.parseColor("#64748B") to Color(0xFF64748B)
-    )
-
-    AuroraGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        cornerRadius = 12.dp,
-        containerColor = Color(0xF2181B21)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            // Row 1: Tab Switcher + Quick Canvas Utilities
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                ResponsiveBouncyButton(
-                    onClick = { onSelectDockTab(DockTabMode.CREATIVE_STUDIO) },
-                    containerColor = if (dockTab == DockTabMode.CREATIVE_STUDIO) Color(0xFF252A34) else Color(0xFF14171D),
-                    borderColor = if (dockTab == DockTabMode.CREATIVE_STUDIO) SkyBlue.copy(alpha = 0.65f) else Color(0xFF282D37),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 6,
-                    modifier = Modifier.weight(1.1f)
-                ) {
-                    Text(
-                        text = "Công cụ vẽ",
-                        color = if (dockTab == DockTabMode.CREATIVE_STUDIO) Color(0xFFF3F4F6) else Color(0xFF9CA3AF),
-                        fontSize = 11.sp,
-                        fontWeight = if (dockTab == DockTabMode.CREATIVE_STUDIO) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-
-                ResponsiveBouncyButton(
-                    onClick = { onSelectDockTab(DockTabMode.SWAM_DEMO) },
-                    containerColor = if (dockTab == DockTabMode.SWAM_DEMO) Color(0xFF252A34) else Color(0xFF14171D),
-                    borderColor = if (dockTab == DockTabMode.SWAM_DEMO) SkyBlue.copy(alpha = 0.65f) else Color(0xFF282D37),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 6,
-                    modifier = Modifier.weight(1.25f)
-                ) {
-                    Text(
-                        text = "Kiểm thử tải (+50 / +200)",
-                        color = if (dockTab == DockTabMode.SWAM_DEMO) Color(0xFFF3F4F6) else Color(0xFF9CA3AF),
-                        fontSize = 11.sp,
-                        fontWeight = if (dockTab == DockTabMode.SWAM_DEMO) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-
-                ResponsiveBouncyButton(
-                    onClick = onToggleGrid,
-                    containerColor = if (showPaperGrid) Color(0xFF252A34) else Color(0xFF14171D),
-                    borderColor = if (showPaperGrid) SkyBlue.copy(alpha = 0.65f) else Color(0xFF282D37),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 6,
-                    contentPaddingHorizontal = 6
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.GridOn,
-                        contentDescription = "Lưới",
-                        tint = if (showPaperGrid) SkyBlue else Color(0xFF9CA3AF),
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-
-                ResponsiveBouncyButton(
-                    onClick = onFillCanvas,
-                    containerColor = Color(0xFF14171D),
-                    borderColor = Color(0xFF282D37),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 6,
-                    contentPaddingHorizontal = 6
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FormatColorFill,
-                        contentDescription = "Đổ màu",
-                        tint = Color(0xFFD1D5DB),
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-
-                ResponsiveBouncyButton(
-                    onClick = onClearCanvas,
-                    containerColor = Color(0xFF14171D),
-                    borderColor = Color(0xFF282D37),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPaddingVertical = 6,
-                    contentPaddingHorizontal = 6
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = "Xóa trắng",
-                        tint = CoralRose,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-            }
-
-            if (dockTab == DockTabMode.CREATIVE_STUDIO) {
-                // === TAB 1: STUDIO DRAWING MODE ===
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StudioToolButton(
-                        icon = Icons.Default.Edit,
-                        label = "Bút mực",
-                        selected = activeTool == StudioBrushTool.INK_PEN,
-                        onClick = { onSelectTool(StudioBrushTool.INK_PEN) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    StudioToolButton(
-                        icon = Icons.Default.Brush,
-                        label = "Bút dạ",
-                        selected = activeTool == StudioBrushTool.MARKER,
-                        onClick = { onSelectTool(StudioBrushTool.MARKER) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    StudioToolButton(
-                        icon = Icons.Default.AutoFixHigh,
-                        label = "Tẩy",
-                        selected = activeTool == StudioBrushTool.ERASER,
-                        onClick = { onSelectTool(StudioBrushTool.ERASER) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ResponsiveBouncyButton(
-                        onClick = { onBurstDraw(50) },
-                        containerColor = Color(0xFF22262F),
-                        borderColor = Color(0xFF2E333E),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingVertical = 6,
-                        modifier = Modifier.weight(0.85f)
-                    ) {
-                        Text(
-                            text = "+50 nét",
-                            color = Color(0xFFD1D5DB),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1
-                        )
-                    }
-                    ResponsiveBouncyButton(
-                        onClick = { onBurstDraw(200) },
-                        containerColor = Color(0xFF22262F),
-                        borderColor = Color(0xFF2E333E),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingVertical = 6,
-                        modifier = Modifier.weight(0.9f)
-                    ) {
-                        Text(
-                            text = "+200 nét",
-                            color = Color(0xFFD1D5DB),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                // Brush Size Slider with Preview Circle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val previewDp = (selectedWidth / 7f).coerceIn(5f, 22f).dp
-                    Box(
-                        modifier = Modifier.size(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(previewDp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (activeTool == StudioBrushTool.ERASER) Color.White
-                                    else Color(selectedColor)
-                                )
-                                .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
-                        )
-                    }
-
-                    Slider(
-                        value = selectedWidth,
-                        onValueChange = onSelectWidth,
-                        valueRange = 3f..160f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = SkyBlue,
-                            activeTrackColor = SkyBlue,
-                            inactiveTrackColor = Color(0xFF282D37)
-                        ),
+                    // Top: things that are happening, then the memory line
+                    Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(26.dp)
-                    )
-
-                    Text(
-                        text = "${selectedWidth.toInt()} px",
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                // Color Swatches
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    proPalette.forEach { (androidCol, composeCol) ->
-                        val isSelected = selectedColor == androidCol && activeTool != StudioBrushTool.ERASER
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(composeCol)
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) Color.White else Color(0xFF383E4C),
-                                    shape = CircleShape
-                                )
-                                .clickable { onSelectColor(androidCol) },
-                            contentAlignment = Alignment.Center
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AnimatedVisibility(
+                            visible = isAutoDemoRunning,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            if (isSelected) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
+                            StatusStrip(
+                                title = autoDemoPhaseTitle,
+                                detail = autoDemoInstruction,
+                                accent = NeonCyan,
+                                progress = autoDemoProgress,
+                                primaryLabel = "Dừng",
+                                onPrimary = {
+                                    autoDemoJob?.cancel()
+                                    isAutoDemoRunning = false
+                                }
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = oomAlertMessage != null,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            StatusStrip(
+                                title = "Hết bộ nhớ cho lịch sử",
+                                detail = oomAlertMessage,
+                                accent = CoralRose,
+                                primaryLabel = if (currentMode != HistoryMode.TIERED) "Dùng Tiered" else null,
+                                onPrimary = {
+                                    oomAlertMessage = null
+                                    switchMode(HistoryMode.TIERED)
+                                },
+                                secondaryLabel = "Giải phóng RAM",
+                                onSecondary = {
+                                    oomAlertMessage = null
+                                    drawingViewRef?.historyManager?.clear()
+                                    System.gc()
+                                    refreshTelemetrySnapshot()
+                                },
+                                onClose = { oomAlertMessage = null }
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isBurstRunning,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            StatusStrip(
+                                title = burstLabel,
+                                detail = "$burstProgressCurrent / $burstProgressTotal",
+                                accent = AmberGold,
+                                progress = if (burstProgressTotal > 0) burstProgressCurrent / burstProgressTotal.toFloat() else 0f,
+                                primaryLabel = "Dừng",
+                                onPrimary = {
+                                    burstJob?.cancel()
+                                    isBurstRunning = false
+                                }
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = demoState.isRunning,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            StatusStrip(
+                                title = String.format(
+                                    Locale.US, "%s  %d:%02d / 3:00",
+                                    demoState.currentPhase.title, demoState.elapsedSeconds / 60, demoState.elapsedSeconds % 60
+                                ),
+                                detail = demoState.currentInstruction,
+                                accent = AmberGold,
+                                progress = (demoState.elapsedSeconds / 180f).coerceIn(0f, 1f),
+                                primaryLabel = "Dừng",
+                                onPrimary = {
+                                    demoRunner?.stop()
+                                    Toast.makeText(this@MainActivity, "Đã dừng demo", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+
+                        if (isXRayMinimized && !trackerVisible) {
+                            MemoryPill(
+                                telemetry = currentTelemetry,
+                                expanded = false,
+                                onClick = { isXRayMinimized = false }
+                            )
+                        } else if (!trackerVisible) {
+                            ChronosXRayHud(
+                                telemetry = currentTelemetry,
+                                points = telemetryPoints,
+                                mode = currentMode,
+                                isMinimized = false,
+                                onToggleMinimize = { isXRayMinimized = true },
+                                onClose = { isXRayMinimized = true },
+                                onOpenSwamSheet = { showSwamSheet = true }
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = trackerVisible,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            TierTrackerPanel(
+                                mode = currentMode,
+                                telemetry = currentTelemetry,
+                                cells = tierCells,
+                                events = tierEvents,
+                                startMs = trackerStartMs,
+                                onClear = { tierEvents.clear() },
+                                onClose = { toggleTracker() }
+                            )
+                        }
+                    }
+
+                    // Bottom: a one-line caption and the tool dock
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // a quiet note after each stroke that fades away; the dock never moves
+                        var noteVisible by remember { mutableStateOf(false) }
+                        LaunchedEffect(lastPatchSummary) {
+                            noteVisible = true
+                            delay(2600L)
+                            noteVisible = false
+                        }
+                        Box(modifier = Modifier.height(20.dp), contentAlignment = Alignment.Center) {
+                            androidx.compose.animation.AnimatedVisibility(visible = noteVisible, enter = fadeIn(), exit = fadeOut()) {
+                                Text(
+                                    text = lastPatchSummary,
+                                    color = MutedText,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 24.dp)
                                 )
                             }
                         }
-                    }
-                }
-            } else {
-                // === TAB 2: STRESS & EVALUATION CONTROLS ===
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ResponsiveBouncyButton(
-                        onClick = onToggleBurstStrokeType,
-                        containerColor = Color(0xFF14171D),
-                        borderColor = Color(0xFF282D37),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingVertical = 5,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = if (burstStrokeType == StrokeType.LARGE) "Cỡ nét tự động: Lớn (40–100%)" else "Cỡ nét tự động: Nhỏ (2–10%)",
-                            color = Color(0xFFD1D5DB),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1
+                        Spacer(Modifier.height(8.dp))
+                        ToolDock(
+                            activeTool = activeTool,
+                            color = selectedBaseColor,
+                            width = selectedStrokeWidth,
+                            onSelectTool = { tool ->
+                                activeTool = tool
+                                syncBrushToView()
+                            },
+                            onSelectColor = { color ->
+                                selectedBaseColor = color
+                                if (activeTool == StudioBrushTool.ERASER) activeTool = StudioBrushTool.INK_PEN
+                                syncBrushToView()
+                            },
+                            onSelectWidth = { width ->
+                                selectedStrokeWidth = width
+                                syncBrushToView()
+                            }
                         )
                     }
+                }
+            }
 
-                    ResponsiveBouncyButton(
-                        onClick = onToggleDirtyRect,
-                        containerColor = if (showDirtyRectBox) Color(0xFF252A34) else Color(0xFF14171D),
-                        borderColor = if (showDirtyRectBox) SkyBlue.copy(alpha = 0.6f) else Color(0xFF282D37),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPaddingVertical = 5,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Visibility,
-                                contentDescription = null,
-                                tint = if (showDirtyRectBox) SkyBlue else Color(0xFF9CA3AF),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (showDirtyRectBox) "Hiển thị khung bao: Bật" else "Hiển thị khung bao: Tắt",
-                                color = if (showDirtyRectBox) Color(0xFFF3F4F6) else Color(0xFF9CA3AF),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1
-                            )
-                        }
+            if (showClearConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showClearConfirm = false },
+                    containerColor = CyberSurface,
+                    titleContentColor = InkText,
+                    textContentColor = MutedText,
+                    title = { Text("Xóa bản vẽ?") },
+                    text = { Text("Bản vẽ và toàn bộ lịch sử hoàn tác sẽ bị xóa, không thể khôi phục.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showClearConfirm = false
+                            performClear()
+                        }) { Text("Xóa", color = CoralRose, fontWeight = FontWeight.SemiBold) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearConfirm = false }) { Text("Hủy", color = MutedText) }
                     }
-                }
-
-                // Row 1: Burst Draw +50, Burst Draw +200, Batch Undo -50
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    BentoDemoCard(
-                        icon = Icons.Default.AllInclusive,
-                        title = "Vẽ +50 bước",
-                        subtitle = "Chế độ ${currentMode.name}",
-                        color = RadiantMint,
-                        onClick = { onBurstDraw(50) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    BentoDemoCard(
-                        icon = Icons.Default.RocketLaunch,
-                        title = "Vẽ +200 bước",
-                        subtitle = "Chế độ ${currentMode.name}",
-                        color = SkyBlue,
-                        onClick = { onBurstDraw(200) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    BentoDemoCard(
-                        icon = Icons.Default.FastRewind,
-                        title = "Hoàn tác 50 bước",
-                        subtitle = "Đo độ trễ & Prefetch",
-                        color = Color(0xFFD1D5DB),
-                        onClick = { onBurstUndo(50) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                // Row 2: Auto Demo 3 Mode, Stress Trim RAM, OOM Cleaner
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    BentoDemoCard(
-                        icon = if (isDemoRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
-                        title = if (isDemoRunning) "Dừng chạy" else "So sánh 3 chế độ",
-                        subtitle = "Chạy thực & xuất báo cáo",
-                        color = if (isDemoRunning) CoralRose else AmberGold,
-                        onClick = onToggleDemo,
-                        modifier = Modifier.weight(1f)
-                    )
-                    BentoDemoCard(
-                        icon = Icons.Default.Bolt,
-                        title = "Thu hồi RAM",
-                        subtitle = "Giả lập áp lực bộ nhớ",
-                        color = CoralRose,
-                        onClick = onStressMemory,
-                        modifier = Modifier.weight(1f)
-                    )
-                    BentoDemoCard(
-                        icon = Icons.Default.CleaningServices,
-                        title = "Khử trùng lặp",
-                        subtitle = "Gộp bản vá theo CRC32",
-                        color = Color(0xFFC4B5FD),
-                        onClick = onRunOomCleaner,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StudioToolButton(
-    icon: ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    ResponsiveBouncyButton(
-        onClick = onClick,
-        containerColor = if (selected) Color(0xFF2563EB) else Color(0xFF14171D),
-        borderColor = if (selected) Color(0xFF60A5FA).copy(alpha = 0.5f) else Color(0xFF282D37),
-        shape = RoundedCornerShape(8.dp),
-        contentPaddingVertical = 6,
-        contentPaddingHorizontal = 4,
-        modifier = modifier
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (selected) Color.White else Color(0xFF9CA3AF),
-                modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = label,
-                color = if (selected) Color.White else Color(0xFFD1D5DB),
-                fontSize = 10.5.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun BentoDemoCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    color: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    ResponsiveBouncyButton(
-        onClick = onClick,
-        containerColor = Color(0xFF14171D),
-        borderColor = Color(0xFF282D37),
-        shape = RoundedCornerShape(8.dp),
-        contentPaddingVertical = 7,
-        contentPaddingHorizontal = 6,
-        modifier = modifier
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = color,
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = title,
-                    color = Color(0xFFF3F4F6),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.height(1.dp))
-            Text(
-                text = subtitle,
-                color = Color(0xFF9CA3AF),
-                fontSize = 8.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
 
-@Composable
-private fun DemoScenarioBannerCard(
-    state: DemoState,
-    onStop: () -> Unit
-) {
-    val min = state.elapsedSeconds / 60
-    val sec = state.elapsedSeconds % 60
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xF2181B21),
-        border = BorderStroke(1.dp, AmberGold.copy(alpha = 0.6f))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = String.format(Locale.US, "%s (%d:%02d / 3:00)", state.currentPhase.title, min, sec),
-                    color = Color(0xFFF3F4F6),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
+            if (showLab) {
+                LabSheet(
+                    isDemoRunning = isAutoDemoRunning || demoState.isRunning,
+                    hasReport = latestDemoReport != null,
+                    burstLarge = burstStrokeType == StrokeType.LARGE,
+                    showSavedRegions = showDirtyRectBox,
+                    showGrid = showPaperGrid,
+                    showMemoryDetail = !isXRayMinimized,
+                    onStartComparison = { startThreeModeAutoDemo() },
+                    onOpenReport = { showDemoReportModal = true },
+                    onOpenBenchmark = { startActivity(Intent(this@MainActivity, BenchmarkActivity::class.java)) },
+                    onOpenConfig = { showSwamSheet = true },
+                    onBurstDraw = { count -> burstDrawSteps(count) },
+                    onBurstUndo = { count -> burstUndoSteps(count) },
+                    onToggleBurstSize = {
+                        burstStrokeType = if (burstStrokeType == StrokeType.LARGE) StrokeType.SMALL else StrokeType.LARGE
+                    },
+                    onReleaseHot = {
+                        @Suppress("DEPRECATION")
+                        drawingViewRef?.historyManager?.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+                        lifecycleScope.launch {
+                            delay(80L)
+                            refreshTelemetrySnapshot()
+                        }
+                    },
+                    onMergeDuplicates = {
+                        val mgr = drawingViewRef?.historyManager
+                        if (mgr is TieredHistory) {
+                            lifecycleScope.launch {
+                                val saved = mgr.runOomCleaner()
+                                refreshTelemetrySnapshot()
+                                Toast.makeText(this@MainActivity, "Gộp trang trùng: thu hồi ${saved / 1024} KB", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, "Chỉ áp dụng cho chế độ Tiered", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onToggleSavedRegions = {
+                        showDirtyRectBox = !showDirtyRectBox
+                        syncBrushToView()
+                        drawingViewRef?.invalidate()
+                    },
+                    onToggleGrid = {
+                        showPaperGrid = !showPaperGrid
+                        syncBrushToView()
+                        drawingViewRef?.invalidate()
+                    },
+                    onToggleMemoryDetail = { isXRayMinimized = !isXRayMinimized },
+                    onFill = {
+                        try {
+                            drawingViewRef?.fillCanvas(selectedBaseColor)
+                            refreshTelemetrySnapshot()
+                        } catch (oom: OutOfMemoryError) {
+                            System.gc()
+                            oomAlertMessage = "Không đủ bộ nhớ để đổ màu cả canvas (16 MB) ở chế độ ${currentMode.name}."
+                        }
+                    },
+                    onDismiss = { showLab = false }
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                ResponsiveBouncyButton(
-                    onClick = onStop,
-                    containerColor = Color(0xFFDC2626),
-                    borderColor = Color(0xFFF87171).copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPaddingHorizontal = 8,
-                    contentPaddingVertical = 4
-                ) {
-                    Text(
-                        text = "Dừng",
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
             }
-            Spacer(modifier = Modifier.height(5.dp))
-            LinearProgressIndicator(
-                progress = { (state.elapsedSeconds / 180f).coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = AmberGold,
-                trackColor = Color(0xFF282D37)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = state.currentInstruction,
-                color = Color(0xFFD1D5DB),
-                fontSize = 10.5.sp
-            )
+
+            // Comparison report
+            if (showDemoReportModal && latestDemoReport != null) {
+                SwamDemoReportModal(
+                    report = latestDemoReport!!,
+                    onRerunDemo = {
+                        showDemoReportModal = false
+                        startThreeModeAutoDemo()
+                    },
+                    onDismiss = { showDemoReportModal = false }
+                )
+            }
+
+            // Tier configuration
+            if (showSwamSheet) {
+                SwamPaperSheet(
+                    currentConfig = currentTierConfig,
+                    prefetchEnabled = prefetchEnabled,
+                    telemetry = currentTelemetry,
+                    onUpdateConfig = { updated ->
+                        currentTierConfig = updated
+                        val mgr = drawingViewRef?.historyManager
+                        if (mgr is TieredHistory) {
+                            mgr.updateTierConfig(updated)
+                            lifecycleScope.launch {
+                                delay(50L)
+                                refreshTelemetrySnapshot()
+                            }
+                        }
+                    },
+                    onTogglePrefetch = { enabled ->
+                        prefetchEnabled = enabled
+                        val mgr = drawingViewRef?.historyManager
+                        if (mgr is TieredHistory) {
+                            mgr.prefetcher.isEnabled = enabled
+                        }
+                    },
+                    onRunOomCleaner = {
+                        val mgr = drawingViewRef?.historyManager
+                        if (mgr is TieredHistory) {
+                            lifecycleScope.launch {
+                                val saved = mgr.runOomCleaner()
+                                refreshTelemetrySnapshot()
+                                Toast.makeText(this@MainActivity, "Đã giải phóng ${saved / 1024} KB trang trùng lặp", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onBurstInfiniteUndoTest = { steps ->
+                        burstDrawSteps(steps)
+                    },
+                    onDismiss = { showSwamSheet = false }
+                )
+            }
         }
     }
 }

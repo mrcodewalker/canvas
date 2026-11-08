@@ -7,7 +7,7 @@ import com.example.canvas.core.Patch
  */
 class HotStore {
 
-    private val queue = ArrayDeque<Patch>()
+    private val queue = PatchQueue()
     var totalBytes: Long = 0L
         private set
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -41,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,18 @@ import com.example.canvas.ui.compose.SwamComparisonReportContent
 import com.example.canvas.ui.theme.AmberGold
 import com.example.canvas.ui.theme.ChronosCanvasTheme
 import com.example.canvas.ui.theme.CoralRose
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
+import com.example.canvas.ui.compose.LabSection
+import com.example.canvas.ui.theme.CyberCardBorder
+import com.example.canvas.ui.theme.CyberSurfaceVariant
+import com.example.canvas.ui.theme.EmeraldGreen
+import com.example.canvas.ui.theme.FaintText
+import com.example.canvas.ui.theme.InkText
+import com.example.canvas.ui.theme.MutedText
+import com.example.canvas.ui.theme.NeonCyan
 import com.example.canvas.ui.theme.CyberObsidian
 import com.example.canvas.ui.theme.CyberSurface
 import com.example.canvas.ui.theme.RadiantMint
@@ -117,12 +132,53 @@ class BenchmarkActivity : ComponentActivity() {
     private var comparisonEntries by mutableStateOf<List<ModeComparisonEntry>>(emptyList())
     private var mathReport by mutableStateOf<SwamComparisonReport?>(null)
 
+    // live view of the run: a small copy of the canvas being drawn plus running numbers
+    private var previewEnabled by mutableStateOf(true)
+    private var previewBitmap by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    private var liveTiles by mutableStateOf<List<Pair<String, String>>>(emptyList())
+    private var liveStartMs = 0L
+    private var lastPreviewMs = 0L
+
+    private fun publishLive(runner: BenchmarkRunner, mode: HistoryMode) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastPreviewMs < 160) return
+        lastPreviewMs = now
+        val c = runner.liveCollector
+        val frame = if (previewEnabled) runner.snapshot(420) else null
+        val mb = 1024.0 * 1024.0
+        val tiles = if (c == null) emptyList() else listOf(
+            "Chế độ" to mode.name.lowercase().replace('_', ' '),
+            "Thời gian" to String.format(Locale.US, "%.1f s", (now - liveStartMs) / 1000.0),
+            "Trễ TB" to String.format(Locale.US, "%.1f ms", c.averageLatencyMs()),
+            "Hot" to String.format(Locale.US, "%.1f MB", c.peakHotBytes / mb),
+            "Warm" to String.format(Locale.US, "%.1f MB", c.peakWarmBytes / mb),
+            "Cold" to String.format(Locale.US, "%.1f MB", c.peakColdBytes / mb)
+        )
+        lifecycleScope.launch(Dispatchers.Main) {
+            if (frame != null) previewBitmap = frame.asImageBitmap()
+            liveTiles = tiles
+        }
+    }
+
+    private var reportMeta by mutableStateOf<List<String>>(emptyList())
+
+    private fun metaOf(config: BenchmarkConfig, steps: Int): List<String> = listOf(
+        config.scenario.title,
+        if (config.strokeType == StrokeType.SMALL) "Nét nhỏ" else "Nét lớn",
+        "Seed ${config.seed}",
+        "$steps bước",
+        android.os.Build.MODEL,
+        "Android ${android.os.Build.VERSION.RELEASE} · ${Runtime.getRuntime().availableProcessors()} lõi",
+        "Heap ${Runtime.getRuntime().maxMemory() / (1024 * 1024)} MiB"
+    )
+
     private var lastCollector: MetricsCollector? = null
     private var lastConfig: BenchmarkConfig? = null
     private var lastMode: HistoryMode = HistoryMode.TIERED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.canvas.history.MemorySignal.install(this)
         enableEdgeToEdge()
 
         setContent {
@@ -160,12 +216,15 @@ class BenchmarkActivity : ComponentActivity() {
         val historyManager = createHistoryManager(selectedMode)
         progressLabel = "Đang chạy ${selectedScenario.name} trên chế độ ${selectedMode.name}..."
 
+        liveStartMs = android.os.SystemClock.elapsedRealtime()
+        previewBitmap = null
         lifecycleScope.launch {
             val runner = BenchmarkRunner(historyManager)
             val collector = runner.runBenchmark(
                 config = config,
                 scope = this,
                 onProgress = { cur, tot ->
+                    publishLive(runner, selectedMode)
                     lifecycleScope.launch(Dispatchers.Main) {
                         progressCurrent = cur
                         progressTotal = tot.coerceAtLeast(1)
@@ -175,9 +234,10 @@ class BenchmarkActivity : ComponentActivity() {
             )
 
             lastCollector = collector
-            reportText = buildFormattedReport(collector, config, selectedMode)
+            reportText = buildFormattedReport(collector, config, selectedMode, historyManager.stats())
             val entry = toComparisonEntry(selectedMode, collector)
             comparisonEntries = listOf(entry)
+            reportMeta = metaOf(config, steps)
             isRunning = false
             progressLabel = "Hoàn tất (${collector.status.name})"
         }
@@ -204,10 +264,12 @@ class BenchmarkActivity : ComponentActivity() {
                 progressLabel = "Đang đo chế độ ${mode.name}..."
                 val manager = createHistoryManager(mode)
                 val runner = BenchmarkRunner(manager)
+                liveStartMs = android.os.SystemClock.elapsedRealtime()
                 val collector = runner.runBenchmark(
                     config = config,
                     scope = this,
                     onProgress = { cur, tot ->
+                        publishLive(runner, mode)
                         lifecycleScope.launch(Dispatchers.Main) {
                             progressCurrent = cur
                             progressTotal = tot.coerceAtLeast(1)
@@ -225,6 +287,7 @@ class BenchmarkActivity : ComponentActivity() {
             }
             reportText = combinedLog.toString().trim()
             mathReport = buildMathReportFromEntries(results)
+            reportMeta = metaOf(config, steps)
             isRunning = false
             progressLabel = "Đã hoàn tất so sánh thực nghiệm 3 chế độ (Naive · Dirty Rect · Tiered)"
         }
@@ -360,7 +423,8 @@ class BenchmarkActivity : ComponentActivity() {
     private fun buildFormattedReport(
         collector: MetricsCollector,
         config: BenchmarkConfig,
-        mode: HistoryMode
+        mode: HistoryMode,
+        stats: com.example.canvas.history.HistoryStats? = null
     ): String {
         val peakJavaMb = collector.peakJavaHeapBytes / (1024.0 * 1024.0)
         val peakNativeMb = collector.peakNativeHeapBytes / (1024.0 * 1024.0)
@@ -372,6 +436,9 @@ class BenchmarkActivity : ComponentActivity() {
 
         val sb = StringBuilder()
         sb.append("=== BÁO CÁO THỰC NGHIỆM (${mode.name}) ===\n")
+        sb.append(String.format(Locale.US, "Thiết bị:         %s · Android SDK %d · %d lõi · heap tối đa %d MiB\n",
+            android.os.Build.MODEL, android.os.Build.VERSION.SDK_INT, Runtime.getRuntime().availableProcessors(),
+            Runtime.getRuntime().maxMemory() / (1024 * 1024)))
         sb.append(String.format(Locale.US, "Kịch bản:         %s\n", config.scenario.title))
         sb.append(String.format(Locale.US, "Loại nét vẽ:      %s (Seed %d)\n", config.strokeType.name, config.seed))
         sb.append(String.format(Locale.US, "Trạng thái:       %s\n", collector.status.name))
@@ -397,6 +464,17 @@ class BenchmarkActivity : ComponentActivity() {
                 collector.percentileLatencyMs(95.0)
             )
         )
+        if (stats != null &&
+            stats.costCompressMs + stats.costInflateMs + stats.costReadMs + stats.costWriteMs + stats.costRecompressMs > 0.0
+        ) {
+            sb.append("----------------------------------------\n")
+            sb.append(String.format(Locale.US, "Nén tổng:         %.0f ms\n", stats.costCompressMs))
+            sb.append(String.format(Locale.US, "Giải nén tổng:    %.0f ms\n", stats.costInflateMs))
+            sb.append(String.format(Locale.US, "Đọc đĩa tổng:     %.0f ms\n", stats.costReadMs))
+            sb.append(String.format(Locale.US, "Ghi đĩa tổng:     %.0f ms\n", stats.costWriteMs))
+            sb.append(String.format(Locale.US, "Nén sâu tổng:     %.0f ms\n", stats.costRecompressMs))
+            sb.append(String.format(Locale.US, "Vẽ patch tổng:    %.0f ms\n", stats.costApplyMs))
+        }
         if (collector.getTierLatencies("HOT").isNotEmpty() ||
             collector.getTierLatencies("WARM").isNotEmpty() ||
             collector.getTierLatencies("COLD").isNotEmpty()
@@ -463,305 +541,336 @@ class BenchmarkActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun CanvasCard() {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(CyberSurface)
+                .border(1.dp, CyberCardBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (isRunning) EmeraldGreen else FaintText))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (isRunning) "Đang vẽ trực tiếp" else if (previewBitmap != null) "Canvas sau khi chạy" else "Canvas thực nghiệm",
+                    color = InkText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)
+                )
+                Text("2048 × 2048 px", color = FaintText, fontSize = 11.5.sp)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                val bmp = previewBitmap
+                if (bmp != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bmp,
+                        contentDescription = "Canvas đang vẽ",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        if (previewEnabled) "Nét vẽ sẽ hiện ở đây khi chạy" else "Xem trước đang tắt",
+                        color = Color.Gray, fontSize = 13.sp
+                    )
+                }
+            }
+            val tiles = liveTiles
+            if (tiles.isNotEmpty()) {
+                tiles.chunked(3).forEach { rowTiles ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowTiles.forEach { (label, value) -> StatTile(label, value, Modifier.weight(1f)) }
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Switch(
+                    checked = previewEnabled,
+                    onCheckedChange = { previewEnabled = it },
+                    enabled = !isRunning
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "Hiện canvas khi chạy. Chụp khung hình tốn thêm một chút CPU, hãy tắt khi đo thuần.",
+                    color = MutedText, fontSize = 11.5.sp, lineHeight = 15.sp
+                )
+            }
+        }
+    }
+
+    @Composable
     private fun BenchmarkLabScreen() {
+        val scroll = rememberScrollState()
+        var showRaw by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(isRunning) {
+            if (isRunning) {
+                kotlinx.coroutines.delay(150)
+                scroll.animateScrollTo(scroll.maxValue)
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(CyberObsidian)
                 .systemBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Top Bar
+            // header
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { finish() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Quay lại",
-                        tint = Color(0xFFF3F4F6)
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại", tint = InkText)
                 }
                 Column {
+                    Text("Thực nghiệm", color = InkText, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        text = "Thực nghiệm định lượng E1–E6",
-                        color = Color(0xFFF3F4F6),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "Đo Java Heap · Native Heap · PSS · Phân tầng Hot / Warm / Cold & độ trễ",
-                        color = Color(0xFF9CA3AF),
-                        fontSize = 11.sp
+                        "Đo heap, PSS, các tầng Hot, Warm, Cold và độ trễ",
+                        color = MutedText,
+                        fontSize = 12.5.sp
                     )
                 }
             }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(CyberCardBorder))
 
-            // 1. Scenario Selector Card (E1 - E6)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = CyberSurface,
-                border = BorderStroke(1.dp, Color(0xFF2E333E)),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scroll)
+                    .padding(bottom = 16.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "1. Chọn kịch bản thực nghiệm (E1 – E6)",
-                        color = Color(0xFFF3F4F6),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        ScenarioType.values().forEach { sc ->
-                            val selected = selectedScenario == sc
-                            FilterChip(
-                                selected = selected,
-                                onClick = {
-                                    selectedScenario = sc
-                                    stepsInput = when (sc) {
-                                        ScenarioType.E1_DRAW_UNTIL_OOM -> "60"
-                                        ScenarioType.E2_DRAW_AND_UNDO_ALL -> "100"
-                                        ScenarioType.E3_UNDO_BY_TIER -> "45"
-                                        ScenarioType.E4_CONTINUOUS_UNDO_PREFETCH -> "80"
-                                        ScenarioType.E5_STRESS_AND_RECOVER -> "80"
-                                        ScenarioType.E6_CORRECTNESS_HASH -> "30"
-                                    }
-                                },
-                                label = {
-                                    Text(
-                                        text = sc.title,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = SkyBlue.copy(alpha = 0.2f),
-                                    selectedLabelColor = SkyBlue
-                                )
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = selectedScenario.description,
-                        color = Color(0xFF9CA3AF),
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            // 2. Mode, Stroke Type & Step Parameters
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = CyberSurface,
-                border = BorderStroke(1.dp, Color(0xFF2E333E)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "2. Cấu hình chế độ và tham số",
-                        color = Color(0xFFF3F4F6),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        HistoryMode.values().forEach { m ->
-                            val col = when (m) {
-                                HistoryMode.NAIVE -> CoralRose
-                                HistoryMode.DIRTY_RECT -> AmberGold
-                                HistoryMode.TIERED -> RadiantMint
-                            }
-                            FilterChip(
-                                selected = selectedMode == m,
-                                onClick = { selectedMode = m },
-                                label = { Text(m.name, fontWeight = FontWeight.SemiBold, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = col.copy(alpha = 0.18f),
-                                    selectedLabelColor = col
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StrokeType.values().forEach { st ->
-                            FilterChip(
-                                selected = selectedStrokeType == st,
-                                onClick = { selectedStrokeType = st },
-                                label = {
-                                    Text(
-                                        text = if (st == StrokeType.SMALL) "Nét nhỏ (2–10%)" else "Nét lớn (40–100%)",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = stepsInput,
-                            onValueChange = { stepsInput = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Số bước (Steps)") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = seedInput,
-                            onValueChange = { seedInput = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Random Seed") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Chọn nhanh:", color = Color(0xFF9CA3AF), fontSize = 11.sp)
-                        listOf("30", "60", "150", "300", "500").forEach { preset ->
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (stepsInput == preset) Color(0xFF252A34) else Color(0xFF14171D),
-                                border = BorderStroke(1.dp, if (stepsInput == preset) SkyBlue.copy(alpha = 0.65f) else Color(0xFF282D37)),
-                                modifier = Modifier.clickable { stepsInput = preset }
-                            ) {
-                                Text(
-                                    text = "$preset bước",
-                                    color = if (stepsInput == preset) Color(0xFFF3F4F6) else Color(0xFF9CA3AF),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
+                LabSection("Kịch bản")
+                ScenarioType.values().forEach { sc ->
+                    BenchChoice(sc.title, sc.description, selectedScenario == sc) {
+                        selectedScenario = sc
+                        stepsInput = when (sc) {
+                            ScenarioType.E1_DRAW_UNTIL_OOM -> "60"
+                            ScenarioType.E2_DRAW_AND_UNDO_ALL -> "100"
+                            ScenarioType.E3_UNDO_BY_TIER -> "45"
+                            ScenarioType.E4_CONTINUOUS_UNDO_PREFETCH -> "80"
+                            ScenarioType.E5_STRESS_AND_RECOVER -> "80"
+                            ScenarioType.E6_CORRECTNESS_HASH -> "30"
                         }
                     }
                 }
-            }
 
-            // 3. Action Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = { startSingleBenchmark() },
-                    enabled = !isRunning,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF22262F),
-                        contentColor = Color(0xFFF3F4F6)
+                LabSection("Chế độ lịch sử")
+                Segmented(
+                    items = listOf(
+                        HistoryMode.NAIVE to "Naive",
+                        HistoryMode.DIRTY_RECT to "Dirty rect",
+                        HistoryMode.TIERED to "Tiered"
                     ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Chạy (${selectedMode.name})", fontWeight = FontWeight.Medium, fontSize = 12.sp)
-                }
-
-                Button(
-                    onClick = { startCompareAllThreeModes() },
-                    enabled = !isRunning,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2563EB),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1.15f)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.CompareArrows, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("So sánh 3 chế độ", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = progressLabel,
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f)
+                    selected = selectedMode,
+                    onSelect = { selectedMode = it }
                 )
-                OutlinedButton(
-                    onClick = { exportCsv() },
-                    enabled = !isRunning && lastCollector != null,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Xuất CSV", fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                }
-            }
 
-            if (isRunning) {
-                LinearProgressIndicator(
-                    progress = { (progressCurrent.toFloat() / progressTotal.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                LabSection("Nét vẽ")
+                Segmented(
+                    items = listOf(
+                        StrokeType.SMALL to "Nét nhỏ · 2–10%",
+                        StrokeType.LARGE to "Nét lớn · 40–100%"
+                    ),
+                    selected = selectedStrokeType,
+                    onSelect = { selectedStrokeType = it }
+                )
+
+                LabSection("Quy mô")
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    BenchField("Số bước", stepsInput, Modifier.weight(1f)) { stepsInput = it.filter { ch -> ch.isDigit() } }
+                    BenchField("Seed", seedInput, Modifier.weight(1f)) { seedInput = it.filter { ch -> ch.isDigit() } }
+                }
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = SkyBlue,
-                    trackColor = Color(0xFF282D37)
-                )
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("30", "60", "150", "300", "500").forEach { preset ->
+                        val on = stepsInput == preset
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (on) CyberSurfaceVariant else Color.Transparent)
+                                .border(1.dp, if (on) InkText.copy(alpha = 0.5f) else CyberCardBorder, RoundedCornerShape(10.dp))
+                                .clickable { stepsInput = preset }
+                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                        ) {
+                            Text("$preset bước", color = if (on) InkText else MutedText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+
+                LabSection("Canvas")
+                CanvasCard()
+
+                if (comparisonEntries.isNotEmpty()) {
+                    LabSection("Kết quả thực nghiệm")
+                    ComparisonVisualCard(entries = comparisonEntries, meta = reportMeta)
+                }
+                mathReport?.let { rep ->
+                    Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        SwamComparisonReportContent(report = rep)
+                    }
+                }
+                if (reportText.isNotBlank() && comparisonEntries.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showRaw = !showRaw }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (showRaw) "Ẩn log thô" else "Xem log thô (để đối chiếu và xuất báo cáo)",
+                            color = MutedText, fontSize = 13.sp, fontWeight = FontWeight.Medium
+                        )
+                    }
+                    if (showRaw) {
+                        Text(
+                            text = reportText,
+                            color = MutedText,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.5.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp, vertical = 4.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(CyberSurface)
+                                .padding(14.dp)
+                        )
+                    }
+                }
             }
 
-            // 4. Visual Comparison Chart Card
-            if (comparisonEntries.isNotEmpty()) {
-                ComparisonVisualCard(entries = comparisonEntries)
+            // actions stay in reach at the bottom
+            Surface(color = CyberSurface, modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(CyberCardBorder))
+                    if (isRunning) {
+                        LinearProgressIndicator(
+                            progress = { (progressCurrent.toFloat() / progressTotal.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                            color = NeonCyan,
+                            trackColor = CyberCardBorder
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(progressLabel, color = MutedText, fontSize = 12.5.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { exportCsv() }, enabled = !isRunning && lastCollector != null) {
+                            Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Xuất CSV", fontSize = 13.sp)
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = { startSingleBenchmark() },
+                            enabled = !isRunning,
+                            colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = Color.White),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Chạy với ${when (selectedMode) {
+                                HistoryMode.NAIVE -> "Naive"
+                                HistoryMode.DIRTY_RECT -> "Dirty rect"
+                                HistoryMode.TIERED -> "Tiered"
+                            }}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = { startCompareAllThreeModes() },
+                            enabled = !isRunning,
+                            border = BorderStroke(1.dp, CyberCardBorder),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Text("So sánh 3 chế độ", color = InkText, fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 1)
+                        }
+                    }
+                }
             }
+        }
+    }
+}
 
-            // 4b. Mathematical & Capacity Analysis Report Card (Only when all 3 modes are compared)
-            mathReport?.let { rep ->
-                SwamComparisonReportContent(report = rep)
-            }
+@Composable
+private fun BenchChoice(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, if (selected) NeonCyan else FaintText, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) Box(Modifier.size(10.dp).clip(CircleShape).background(NeonCyan))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = InkText, fontSize = 15.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            Text(subtitle, color = MutedText, fontSize = 12.5.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 1.dp))
+        }
+    }
+}
 
-            // 5. Detailed Monospace Console Report
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color(0xFF14171D),
-                border = BorderStroke(1.dp, Color(0xFF282D37)),
-                modifier = Modifier.fillMaxWidth()
+@Composable
+private fun <T> Segmented(items: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 20.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(CyberSurface)
+            .border(1.dp, CyberCardBorder, RoundedCornerShape(12.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        for ((value, label) in items) {
+            val on = value == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (on) CyberSurfaceVariant else Color.Transparent)
+                    .clickable { onSelect(value) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = reportText,
-                    color = Color(0xFFE5E7EB),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                    modifier = Modifier.padding(12.dp)
+                    label,
+                    color = if (on) InkText else MutedText,
+                    fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1
                 )
             }
         }
@@ -769,73 +878,183 @@ class BenchmarkActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ComparisonVisualCard(entries: List<ModeComparisonEntry>) {
-    val maxRam = max(10.0, entries.maxOfOrNull { it.peakRamMb } ?: 10.0)
-    Surface(
+private fun BenchField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
         shape = RoundedCornerShape(12.dp),
-        color = CyberSurface,
-        border = BorderStroke(1.dp, Color(0xFF2E333E)),
-        modifier = Modifier.fillMaxWidth()
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = NeonCyan,
+            unfocusedBorderColor = CyberCardBorder,
+            focusedTextColor = InkText,
+            unfocusedTextColor = InkText,
+            focusedLabelColor = MutedText,
+            unfocusedLabelColor = MutedText,
+            cursorColor = NeonCyan
+        ),
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun StatTile(label: String, value: String, modifier: Modifier = Modifier, accent: Color? = null) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(CyberSurfaceVariant)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Kết quả đo thực nghiệm",
-                color = Color(0xFFF3F4F6),
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+        Text(label, color = FaintText, fontSize = 10.5.sp, maxLines = 1)
+        Text(value, color = accent ?: InkText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
 
-            entries.forEach { entry ->
-                val color = when (entry.mode) {
-                    HistoryMode.NAIVE -> CoralRose
-                    HistoryMode.DIRTY_RECT -> AmberGold
-                    HistoryMode.TIERED -> RadiantMint
+@Composable
+private fun Chip(text: String, color: Color = MutedText) {
+    Text(
+        text,
+        color = color,
+        fontSize = 11.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, CyberCardBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    )
+}
+
+/** Hot / Warm / Cold peak sizes as one stacked bar with a legend. */
+@Composable
+private fun TierBar(hot: Double, warm: Double, cold: Double) {
+    val total = hot + warm + cold
+    if (total <= 0.0) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Phân bổ lịch sử theo tầng", color = MutedText, fontSize = 12.sp)
+        Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(CyberCardBorder)) {
+            listOf(hot to CoralRose, warm to AmberGold, cold to SkyBlue).forEach { (v, c) ->
+                if (v > 0.0) Box(Modifier.weight(v.toFloat()).fillMaxSize().background(c))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            listOf(Triple("Hot", hot, CoralRose), Triple("Warm", warm, AmberGold), Triple("Cold", cold, SkyBlue)).forEach { (n, v, c) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(c))
+                    Spacer(Modifier.width(5.dp))
+                    Text(String.format(Locale.US, "%s %.1f MB", n, v), color = MutedText, fontSize = 11.5.sp)
                 }
-                val ramFrac = (entry.peakRamMb / maxRam).toFloat().coerceIn(0.02f, 1f)
+            }
+        }
+    }
+}
 
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "${entry.mode.name} • ${entry.status} (${entry.completedSteps} bước)",
-                            color = color,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = String.format(
-                                Locale.US,
-                                "Đỉnh Heap: %.1fM | p50: %.2fms | GC: +%d",
-                                entry.peakRamMb,
-                                entry.p50Ms,
-                                entry.gcDelta
-                            ),
-                            color = Color(0xFFD1D5DB),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(7.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF252A34))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(ramFrac)
-                                .height(7.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(color)
-                        )
+@Composable
+private fun LatencyBars(p50: Double, p95: Double, avg: Double, color: Color) {
+    val top = max(1.0, p95)
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("Độ trễ mỗi bước", color = MutedText, fontSize = 12.sp)
+        listOf("p50" to p50, "TB" to avg, "p95" to p95).forEach { (n, v) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(n, color = FaintText, fontSize = 11.sp, modifier = Modifier.width(28.dp))
+                Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(CyberCardBorder)) {
+                    Box(Modifier.fillMaxWidth((v / top).toFloat().coerceIn(0.02f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(color))
+                }
+                Text(
+                    String.format(Locale.US, "%.1f ms", v),
+                    color = InkText,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.width(66.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComparisonVisualCard(entries: List<ModeComparisonEntry>, meta: List<String>) {
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (meta.isNotEmpty()) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                meta.forEach { Chip(it) }
+            }
+        }
+        val naive = entries.find { it.mode == HistoryMode.NAIVE }
+        val tiered = entries.find { it.mode == HistoryMode.TIERED }
+        if (naive != null && tiered != null && naive.peakRamMb > 0.0) {
+            val saved = (1.0 - tiered.peakRamMb / naive.peakRamMb) * 100.0
+            val faster = if (naive.p95Ms > 0.0) (1.0 - tiered.p95Ms / naive.p95Ms) * 100.0 else 0.0
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(CyberSurface)
+                    .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("Tiered so với Naive, cùng kịch bản và seed", color = MutedText, fontSize = 12.sp)
+                Text(
+                    String.format(
+                        Locale.US, "Heap %s%.0f%%  ·  p95 %s%.0f%%",
+                        if (saved >= 0) "−" else "+", kotlin.math.abs(saved),
+                        if (faster >= 0) "−" else "+", kotlin.math.abs(faster)
+                    ),
+                    color = if (saved >= 0 && faster >= 0) EmeraldGreen else AmberGold, fontSize = 22.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text("Một thiết bị, một lần chạy; dấu − là thấp hơn Naive.", color = FaintText, fontSize = 11.sp)
+            }
+        }
+        entries.forEach { entry ->
+            val color = when (entry.mode) {
+                HistoryMode.NAIVE -> CoralRose
+                HistoryMode.DIRTY_RECT -> AmberGold
+                HistoryMode.TIERED -> EmeraldGreen
+            }
+            val name = when (entry.mode) {
+                HistoryMode.NAIVE -> "Naive"
+                HistoryMode.DIRTY_RECT -> "Dirty rect"
+                HistoryMode.TIERED -> "Tiered"
+            }
+            val ok = entry.status == "SUCCESS"
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(CyberSurface)
+                    .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+                    Spacer(Modifier.width(8.dp))
+                    Text(name, color = InkText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Chip(
+                        when (entry.status) {
+                            "SUCCESS" -> "Hoàn tất"
+                            "OOM_CRASH" -> "Hết bộ nhớ"
+                            "FAILED" -> "Lỗi"
+                            else -> entry.status
+                        },
+                        if (ok) EmeraldGreen else CoralRose
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatTile("Bước", "${entry.completedSteps}", Modifier.weight(1f))
+                    StatTile("Thời gian", String.format(Locale.US, "%.1f s", entry.durationMs / 1000.0), Modifier.weight(1f))
+                    StatTile("Đỉnh heap", String.format(Locale.US, "%.0f MB", entry.peakRamMb), Modifier.weight(1f))
+                }
+                LatencyBars(entry.p50Ms, entry.p95Ms, entry.avgLatencyMs, color)
+                TierBar(entry.hotMb, entry.warmMb, entry.coldMb)
+                if (entry.mode == HistoryMode.TIERED) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatTile("Nạp trước trúng", String.format(Locale.US, "%.0f%%", entry.prefetchHitRate), Modifier.weight(1f))
+                        StatTile("Tỷ lệ nén", String.format(Locale.US, "%.1f×", entry.compressionRatio), Modifier.weight(1f))
+                        StatTile("GC thêm", "+${entry.gcDelta}", Modifier.weight(1f))
                     }
                 }
             }

@@ -106,8 +106,8 @@ fun SwamDemoReportModal(
         ) {
             // Top Header Bar
             Surface(
-                color = Color(0xFF181B21),
-                border = BorderStroke(1.dp, Color(0xFF2E333E)),
+                color = Color(0xFF1F1D1B),
+                border = BorderStroke(1.dp, Color(0xFF3A3733)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -128,13 +128,13 @@ fun SwamDemoReportModal(
                         Column {
                             Text(
                                 text = "Báo cáo thực nghiệm so sánh 3 chế độ lưu lịch sử",
-                                color = Color(0xFFF3F4F6),
+                                color = Color(0xFFF2EEE7),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = "Số liệu đo trực tiếp trên thiết bị (Naive · Dirty Rect · Tiered 3 tầng)",
-                                color = Color(0xFF9CA3AF),
+                                color = Color(0xFF9A948A),
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Normal
                             )
@@ -146,12 +146,12 @@ fun SwamDemoReportModal(
                         modifier = Modifier
                             .size(30.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF22262F))
+                            .background(Color(0xFF2A2825))
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Đóng",
-                            tint = Color(0xFFD1D5DB),
+                            tint = Color(0xFFCFC9BF),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -177,8 +177,8 @@ fun SwamDemoReportModal(
                     Button(
                         onClick = onRerunDemo,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF22262F),
-                            contentColor = Color(0xFFF3F4F6)
+                            containerColor = Color(0xFF2A2825),
+                            contentColor = Color(0xFFF2EEE7)
                         ),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f)
@@ -191,7 +191,7 @@ fun SwamDemoReportModal(
                     Button(
                         onClick = onDismiss,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB),
+                            containerColor = Color(0xFFD9482D),
                             contentColor = Color.White
                         ),
                         shape = RoundedCornerShape(8.dp),
@@ -226,8 +226,8 @@ fun SwamComparisonReportContent(
         // =========================================================================
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF181B21),
-            border = BorderStroke(1.dp, Color(0xFF2E333E)),
+            color = Color(0xFF1F1D1B),
+            border = BorderStroke(1.dp, Color(0xFF3A3733)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -244,7 +244,7 @@ fun SwamComparisonReportContent(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "1. Sức chứa lịch sử hoàn tác trước và sau tối ưu",
-                        color = Color(0xFFF3F4F6),
+                        color = Color(0xFFF2EEE7),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -252,7 +252,7 @@ fun SwamComparisonReportContent(
 
                 Text(
                     text = "Giới hạn Heap của thiết bị: ${report.deviceHeapLimitMb} MB (Ngân sách lịch sử khả dụng: ${report.availableHeapForHistoryMb} MB RAM + ${report.coldStorageBudgetMb} MB bộ nhớ Cold):",
-                    color = Color(0xFF9CA3AF),
+                    color = Color(0xFF9A948A),
                     fontSize = 11.sp
                 )
 
@@ -301,13 +301,13 @@ fun SwamComparisonReportContent(
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF14171D),
-                    border = BorderStroke(1.dp, Color(0xFF282D37)),
+                    color = Color(0xFF1B1A18),
+                    border = BorderStroke(1.dp, Color(0xFF3A3733)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = "Nhận xét từ số liệu thực nghiệm: Khi kết hợp cắt khung bao (Dirty Rect) với phân tầng bộ nhớ Hot → Warm (nén Deflate) → Cold (tệp .chrf trên Flash), dung lượng trung bình mỗi bước giảm còn ${String.format(Locale.US, "%.1f", report.tieredSwam.avgStepSizeKb)} KB, giúp số bước hoàn tác tối đa tăng gấp ${String.format(Locale.US, "%,d", capacityMultiplier)} lần (từ ${report.naive.maxUndoInRamSteps} bước lên ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước).",
-                        color = Color(0xFFD1D5DB),
+                        color = Color(0xFFCFC9BF),
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
                         modifier = Modifier.padding(10.dp)
@@ -321,8 +321,8 @@ fun SwamComparisonReportContent(
         // =========================================================================
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF181B21),
-            border = BorderStroke(1.dp, Color(0xFF2E333E)),
+            color = Color(0xFF1F1D1B),
+            border = BorderStroke(1.dp, Color(0xFF3A3733)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -331,7 +331,7 @@ fun SwamComparisonReportContent(
             ) {
                 Text(
                     text = "2. Biểu đồ số liệu đo thực tế",
-                    color = Color(0xFFF3F4F6),
+                    color = Color(0xFFF2EEE7),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -342,7 +342,7 @@ fun SwamComparisonReportContent(
                 )
                 Text(
                     text = "A. Bộ nhớ RAM lịch sử tiêu thụ (Hot + Warm RAM)",
-                    color = Color(0xFFD1D5DB),
+                    color = Color(0xFFCFC9BF),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -370,12 +370,12 @@ fun SwamComparisonReportContent(
                     color = RadiantMint
                 )
 
-                HorizontalDivider(color = Color(0xFF282D37))
+                HorizontalDivider(color = Color(0xFF3A3733))
 
                 val maxStepKb = max(16384.0, report.naive.avgStepSizeKb)
                 Text(
                     text = "B. Dung lượng trung bình mỗi bước lưu trữ (KB / bước)",
-                    color = Color(0xFFD1D5DB),
+                    color = Color(0xFFCFC9BF),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -398,11 +398,11 @@ fun SwamComparisonReportContent(
                     color = RadiantMint
                 )
 
-                HorizontalDivider(color = Color(0xFF282D37))
+                HorizontalDivider(color = Color(0xFF3A3733))
 
                 Text(
                     text = "C. Độ trễ thực thi trung bình & tỷ lệ Prefetch Hit",
-                    color = Color(0xFFD1D5DB),
+                    color = Color(0xFFCFC9BF),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -433,8 +433,8 @@ fun SwamComparisonReportContent(
         // =========================================================================
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF181B21),
-            border = BorderStroke(1.dp, Color(0xFF2E333E)),
+            color = Color(0xFF1F1D1B),
+            border = BorderStroke(1.dp, Color(0xFF3A3733)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -451,7 +451,7 @@ fun SwamComparisonReportContent(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "3. Cơ sở tính toán từ số liệu thực nghiệm",
-                        color = Color(0xFFF3F4F6),
+                        color = Color(0xFFF2EEE7),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -485,7 +485,7 @@ fun SwamComparisonReportContent(
                         "Tỷ lệ nén đo được: r = RawEquivalent / TotalActual = ${String.format(Locale.US, "%.2fx", report.tieredSwam.compressionRatio)}\n" +
                         "Dung lượng trung bình sau nén: S_tiered = ${String.format(Locale.US, "%.1f", report.tieredSwam.avgStepSizeKb)} KB / bước\n" +
                         "N_max = N_RAM + ⌊ (${report.coldStorageBudgetMb} × 1024 KB) / S_tiered ⌋ = ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước",
-                    explanation = "Các bước mới nhất giữ ở tầng Hot (Bitmap RAM) để hoàn tác tức thì. Khi vượt ngân sách Hot, dữ liệu được nén nhanh sang tầng Warm (Deflater L1) và tái nén sâu (AdaptiveComp L9) xuống tầng Cold (.chrf trên bộ nhớ Flash), đồng thời Prefetcher nạp trước K=5 bước khi hoàn tác liên tục.",
+                    explanation = "Các bước mới nhất giữ ở tầng Hot (Bitmap RAM) để hoàn tác tức thì. Khi vượt ngân sách Hot, dữ liệu được nén nhanh sang tầng Warm (Deflater L1) và tái nén sâu (AdaptiveComp L9) xuống tầng Cold (.chrf trên bộ nhớ Flash), đồng thời Prefetcher nạp trước thích ứng (độ sâu tự tính từ nhịp undo, tốc độ đọc đĩa, độ dài chuỗi undo và RAM Warm còn trống) khi hoàn tác liên tục.",
                     accentColor = RadiantMint
                 )
             }
@@ -505,7 +505,7 @@ private fun CapacityCompareBox(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF14171D),
+        color = Color(0xFF1B1A18),
         border = BorderStroke(1.dp, color.copy(alpha = 0.55f))
     ) {
         Column(
@@ -521,7 +521,7 @@ private fun CapacityCompareBox(
             )
             Text(
                 text = modeTitle,
-                color = Color(0xFFF3F4F6),
+                color = Color(0xFFF2EEE7),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
@@ -538,7 +538,7 @@ private fun CapacityCompareBox(
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = detailText,
-                color = Color(0xFF9CA3AF),
+                color = Color(0xFF9A948A),
                 fontSize = 8.5.sp,
                 lineHeight = 12.sp,
                 textAlign = TextAlign.Center
@@ -563,7 +563,7 @@ private fun MetricBarRow(
         ) {
             Text(
                 text = label,
-                color = Color(0xFFD1D5DB),
+                color = Color(0xFFCFC9BF),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Normal,
                 modifier = Modifier.weight(1f)
@@ -583,7 +583,7 @@ private fun MetricBarRow(
                 .fillMaxWidth()
                 .height(7.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF252A34))
+                .background(Color(0xFF34312D))
         ) {
             if (fraction > 0f) {
                 Box(
@@ -608,8 +608,8 @@ private fun MathFormulaCard(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF14171D),
-        border = BorderStroke(1.dp, Color(0xFF282D37)),
+        color = Color(0xFF1B1A18),
+        border = BorderStroke(1.dp, Color(0xFF3A3733)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(11.dp)) {
@@ -623,20 +623,20 @@ private fun MathFormulaCard(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = title,
-                color = Color(0xFFF3F4F6),
+                color = Color(0xFFF2EEE7),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(6.dp))
             Surface(
                 shape = RoundedCornerShape(6.dp),
-                color = Color(0xFF111317),
-                border = BorderStroke(1.dp, Color(0xFF22262F)),
+                color = Color(0xFF171614),
+                border = BorderStroke(1.dp, Color(0xFF2A2825)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = formula,
-                    color = Color(0xFFE5E7EB),
+                    color = Color(0xFFE4DFD6),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     lineHeight = 14.5.sp,
@@ -646,7 +646,7 @@ private fun MathFormulaCard(
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = explanation,
-                color = Color(0xFF9CA3AF),
+                color = Color(0xFF9A948A),
                 fontSize = 10.5.sp,
                 lineHeight = 15.sp
             )

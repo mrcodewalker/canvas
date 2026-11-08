@@ -18,8 +18,10 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import com.example.canvas.core.Patch
 import com.example.canvas.core.Stroke
+import com.example.canvas.core.StrokeOp
 import com.example.canvas.core.StrokeRenderer
 import com.example.canvas.history.HistoryManager
+import com.example.canvas.history.MemorySignal
 import com.example.canvas.history.HistoryMode
 import com.example.canvas.history.NaiveHistory
 import kotlinx.coroutines.CoroutineScope
@@ -58,11 +60,20 @@ class DrawingView @JvmOverloads constructor(
     private val viewScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     var historyManager: HistoryManager = NaiveHistory()
+        set(value) {
+            field = value
+            value.opRenderer = opRenderer
+        }
     var strokeColor: Int = Color.BLACK
     var strokeWidth: Float = 16f
     var showDirtyRectOverlay: Boolean = true
     var showPaperGrid: Boolean = false
+    /** true = save only the dirty tiles a stroke touches; false = one bounding box (paper baseline). */
+    var tilingEnabled: Boolean = true
     var lastDirtyRect: Rect? = null
+        private set
+    /** The patches the last stroke really saved (tiles), shown by the overlay. */
+    var lastDirtyRegions: List<Rect> = emptyList()
         private set
 
     var onStrokeCommitted: ((Patch) -> Unit)? = null
@@ -78,6 +89,16 @@ class DrawingView @JvmOverloads constructor(
     private val backingCanvas: Canvas = Canvas(backingBitmap)
 
     private val strokeRenderer = StrokeRenderer()
+
+    /** Lets the history replay a recorded step on the current canvas (redo with merge). */
+    private val opRenderer: (Canvas, StrokeOp) -> Unit = { c, op ->
+        val fill = op.fillColor
+        if (fill != null) c.drawColor(fill) else op.stroke?.let { strokeRenderer.renderStroke(c, it) }
+    }
+
+    init {
+        historyManager.opRenderer = opRenderer
+    }
     private var liveStroke: Stroke? = null
 
     // Viewport transformation state
@@ -144,83 +165,48 @@ class DrawingView @JvmOverloads constructor(
 
     // Studio paints
     private val bgPaint = Paint().apply {
-        color = Color.parseColor("#14161A")
-    }
-
-    private val deskDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#232730")
-        style = Paint.Style.FILL
+        color = Color.parseColor("#262320")          // the desk: a calm warm grey, a step lighter than the bars
     }
 
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#08090C")
+        color = Color.parseColor("#262320")
         style = Paint.Style.FILL
-        setShadowLayer(28f, 0f, 12f, Color.parseColor("#99000000"))
+        setShadowLayer(40f, 0f, 14f, Color.parseColor("#66000000"))
     }
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2.5f
-        color = Color.parseColor("#2E333E")
+        strokeWidth = 1.5f
+        color = Color.parseColor("#1A000000")
     }
 
     private val paperGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f
-        color = Color.parseColor("#180284C7")
+        color = Color.parseColor("#18E2553A")
     }
 
     private val paperMajorGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 2.5f
-        color = Color.parseColor("#2A0284C7")
+        color = Color.parseColor("#2AE2553A")
     }
 
-    private val dirtyRectPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 3f
-        color = Color.parseColor("#3B82F6")
-    }
-
-    private val dirtyRectFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    // "What was saved" overlay: the real patches of the last stroke, drawn quietly
+    private val regionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val regionLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val boundsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val labelBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#143B82F6")
+        color = Color.parseColor("#F21F1D1B")
     }
-
-    private val handleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.WHITE
+    private val labelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F2EEE7")
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
-
-    private val handleStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 3f
-        color = Color.parseColor("#3B82F6")
-    }
-
-    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.parseColor("#EA181B21")
-    }
-
-    private val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 2f
-    }
-
-    private val badgeTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = 27f
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-    }
-
-    private val badgeSubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#D1D5DB")
-        textSize = 23f
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-    }
-
-    private val badgeRectF = RectF()
+    private val labelRectF = RectF()
+    private var labelKey = Long.MIN_VALUE
+    private var labelText = ""
 
     init {
         backingCanvas.drawColor(Color.WHITE)
@@ -307,9 +293,21 @@ class DrawingView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 val stroke = liveStroke
                 if (stroke != null) {
-                    // Sub-pixel smoothing filter to avoid jittery micro-points
+                    // Skip points closer than one screen pixel (jitter); the minimum follows the zoom
                     val pts = stroke.points
-                    if (pts.isEmpty() || hypot(canvasX - pts.last().x, canvasY - pts.last().y) >= 1.5f) {
+                    val minStep = 1f / (baseScale * userScale).coerceAtLeast(1e-3f)
+                    // The system batches several touch samples per event: keep them all, oldest first
+                    for (h in 0 until event.historySize) {
+                        touchPoints[0] = event.getHistoricalX(h)
+                        touchPoints[1] = event.getHistoricalY(h)
+                        inverseMatrix.mapPoints(touchPoints)
+                        val hx = touchPoints[0].coerceIn(0f, CANVAS_SIZE.toFloat())
+                        val hy = touchPoints[1].coerceIn(0f, CANVAS_SIZE.toFloat())
+                        if (pts.isEmpty() || hypot(hx - pts.last().x, hy - pts.last().y) >= minStep) {
+                            stroke.addPoint(hx, hy)
+                        }
+                    }
+                    if (pts.isEmpty() || hypot(canvasX - pts.last().x, canvasY - pts.last().y) >= minStep) {
                         stroke.addPoint(canvasX, canvasY)
                     }
                     invalidate()
@@ -345,13 +343,15 @@ class DrawingView @JvmOverloads constructor(
      * Throws [OutOfMemoryError] if snapshot allocation fails (e.g., in NAIVE mode).
      */
     suspend fun drawProgrammaticStrokeSuspend(stroke: Stroke) {
-        val beforePatch = captureBeforePatch(stroke)
+        val beforePatches = captureBeforePatches(stroke)
         strokeRenderer.renderStroke(backingCanvas, stroke)
-        lastDirtyRect = beforePatch.rect
+        val summary = summarize(beforePatches, stroke)
+        lastDirtyRect = summary.rect
+        lastDirtyRegions = beforePatches.map { it.rect }
         invalidate()
 
-        historyManager.commit(beforePatch)
-        onStrokeCommitted?.invoke(beforePatch)
+        commitAll(beforePatches)
+        onStrokeCommitted?.invoke(summary)
     }
 
     /**
@@ -368,7 +368,7 @@ class DrawingView @JvmOverloads constructor(
         val rt = Runtime.getRuntime()
         val maxHeapBytes = rt.maxMemory()
         val usedJavaBytes = rt.totalMemory() - rt.freeMemory()
-        val freeJavaHeadroom = maxHeapBytes - usedJavaBytes
+        val freeJavaHeadroom = minOf(maxHeapBytes - usedJavaBytes, MemorySignal.nativeFree())
 
         val modeSafeCeiling = if (mode == HistoryMode.NAIVE) {
             min((maxHeapBytes * 0.50).toLong(), NAIVE_SAFE_CAP_BYTES)
@@ -387,42 +387,83 @@ class DrawingView @JvmOverloads constructor(
         }
     }
 
-    private fun captureBeforePatch(stroke: Stroke): Patch {
-        return if (historyManager.mode == HistoryMode.NAIVE) {
+    /**
+     * Captures the "before" pixels of the area [stroke] will modify.
+     * NAIVE: one full-canvas copy. Otherwise one patch per dirty tile run (see
+     * [Stroke.computeDirtyRegions]) when [tilingEnabled], or a single bounding-box patch.
+     * Multiple patches of one stroke share a [Patch.groupId] so undo/redo treats them as one step.
+     */
+    private fun captureBeforePatches(stroke: Stroke): List<Patch> {
+        if (historyManager.mode == HistoryMode.NAIVE) {
             val fullCanvasBytes = CANVAS_SIZE.toLong() * CANVAS_SIZE.toLong() * 4L
             ensureMemoryHeadroomOrThrow(fullCanvasBytes)
             val copy = backingBitmap.copy(Bitmap.Config.ARGB_8888, false)
                 ?: throw OutOfMemoryError("Không đủ RAM để copy Bitmap 2048x2048 (16 MiB) trong chế độ NAIVE")
-            Patch(
-                id = System.nanoTime(),
-                rect = Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE),
-                bitmap = copy,
-                sizeBytes = copy.allocationByteCount.toLong()
-            )
-        } else {
-            val bounds = stroke.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
-            val w = bounds.width().coerceAtLeast(1)
-            val h = bounds.height().coerceAtLeast(1)
-            ensureMemoryHeadroomOrThrow(w.toLong() * h.toLong() * 4L)
-            val patchBmp = Bitmap.createBitmap(
-                backingBitmap,
-                bounds.left,
-                bounds.top,
-                w,
-                h
-            )
-            Patch(
-                id = System.nanoTime(),
-                rect = bounds,
-                bitmap = patchBmp,
-                sizeBytes = patchBmp.allocationByteCount.toLong()
+            return listOf(
+                Patch(
+                    id = System.nanoTime(),
+                    rect = Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE),
+                    bitmap = copy,
+                    sizeBytes = copy.allocationByteCount.toLong()
+                )
             )
         }
+
+        val regions = if (tilingEnabled) {
+            stroke.computeDirtyRegions(CANVAS_SIZE, CANVAS_SIZE, historyManager.patchOverheadBytes() ?: Stroke.PAGE_BYTES)
+        } else {
+            listOf(stroke.computeBounds(CANVAS_SIZE, CANVAS_SIZE))
+        }
+        var totalBytes = 0L
+        for (r in regions) totalBytes += r.width().coerceAtLeast(1).toLong() * r.height().coerceAtLeast(1) * 4L
+        ensureMemoryHeadroomOrThrow(totalBytes)
+
+        val groupId = if (regions.size > 1) System.nanoTime() else 0L
+        val patches = ArrayList<Patch>(regions.size)
+        try {
+            for (rect in regions) {
+                val bmp = Bitmap.createBitmap(
+                    backingBitmap,
+                    rect.left,
+                    rect.top,
+                    rect.width().coerceAtLeast(1),
+                    rect.height().coerceAtLeast(1)
+                )
+                patches.add(
+                    Patch(
+                        id = System.nanoTime() + patches.size,
+                        rect = rect,
+                        bitmap = bmp,
+                        sizeBytes = bmp.allocationByteCount.toLong(),
+                        groupId = groupId,
+                        op = StrokeOp(stroke = stroke)
+                    )
+                )
+            }
+        } catch (oom: OutOfMemoryError) {
+            patches.forEach { it.recycle() }
+            throw oom
+        }
+        return patches
+    }
+
+    /** Summary patch (no bitmap, never stored) used for UI callbacks about one committed stroke. */
+    private fun summarize(patches: List<Patch>, stroke: Stroke): Patch {
+        val bounds = if (patches.size == 1) patches[0].rect else stroke.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
+        return Patch(
+            id = patches.firstOrNull()?.id ?: 0L,
+            rect = bounds,
+            sizeBytes = patches.sumOf { it.sizeBytes }
+        )
+    }
+
+    private suspend fun commitAll(patches: List<Patch>) {
+        for (p in patches) historyManager.commit(p)
     }
 
     private fun commitStroke(stroke: Stroke) {
-        val beforePatch: Patch = try {
-            captureBeforePatch(stroke)
+        val beforePatches: List<Patch> = try {
+            captureBeforePatches(stroke)
         } catch (oom: OutOfMemoryError) {
             System.gc()
             onOomCaught?.invoke(
@@ -433,12 +474,14 @@ class DrawingView @JvmOverloads constructor(
 
         // 2. Render stroke onto backing bitmap
         strokeRenderer.renderStroke(backingCanvas, stroke)
-        lastDirtyRect = beforePatch.rect
+        val summary = summarize(beforePatches, stroke)
+        lastDirtyRect = summary.rect
+        lastDirtyRegions = beforePatches.map { it.rect }
 
-        // 3. Commit before patch to history manager
+        // 3. Commit before patches to history manager (in order, one coroutine)
         viewScope.launch {
-            historyManager.commit(beforePatch)
-            onStrokeCommitted?.invoke(beforePatch)
+            commitAll(beforePatches)
+            onStrokeCommitted?.invoke(summary)
         }
     }
 
@@ -456,7 +499,8 @@ class DrawingView @JvmOverloads constructor(
                 id = System.nanoTime(),
                 rect = Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE),
                 bitmap = copy,
-                sizeBytes = copy.allocationByteCount.toLong()
+                sizeBytes = copy.allocationByteCount.toLong(),
+                op = StrokeOp(fillColor = color)
             )
         } catch (oom: OutOfMemoryError) {
             System.gc()
@@ -468,6 +512,7 @@ class DrawingView @JvmOverloads constructor(
 
         backingCanvas.drawColor(color)
         lastDirtyRect = beforePatch.rect
+        lastDirtyRegions = listOf(beforePatch.rect)
         viewScope.launch {
             historyManager.commit(beforePatch)
             onStrokeCommitted?.invoke(beforePatch)
@@ -515,6 +560,7 @@ class DrawingView @JvmOverloads constructor(
     fun clearCanvas() {
         backingCanvas.drawColor(Color.WHITE)
         lastDirtyRect = null
+        lastDirtyRegions = emptyList()
         historyManager.clear()
         invalidate()
     }
@@ -525,19 +571,8 @@ class DrawingView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
 
-        // 1. Draw Studio Desk Background + Subtle Dot Pattern
+        // 1. The desk: one flat colour
         canvas.drawRect(0f, 0f, w, h, bgPaint)
-        val dotSpacing = 28f * resources.displayMetrics.density
-        val dotRadius = 1.3f * resources.displayMetrics.density
-        var y = dotSpacing / 2f
-        while (y < h) {
-            var x = dotSpacing / 2f
-            while (x < w) {
-                canvas.drawCircle(x, y, dotRadius, deskDotPaint)
-                x += dotSpacing
-            }
-            y += dotSpacing
-        }
 
         // 2. Apply viewport matrix for 2048x2048 artboard drawing
         canvas.save()
@@ -560,9 +595,9 @@ class DrawingView @JvmOverloads constructor(
         }
 
         val modeAccentColor = when (historyManager.mode) {
-            HistoryMode.NAIVE -> Color.parseColor("#F06272")
-            HistoryMode.DIRTY_RECT -> Color.parseColor("#F59E0B")
-            HistoryMode.TIERED -> Color.parseColor("#4F8EF7")
+            HistoryMode.NAIVE -> Color.parseColor("#CF4F3A")
+            HistoryMode.DIRTY_RECT -> Color.parseColor("#D9A13B")
+            HistoryMode.TIERED -> Color.parseColor("#E2553A")
         }
 
         // Draw live stroke preview with brush cursor ring
@@ -571,25 +606,15 @@ class DrawingView @JvmOverloads constructor(
             strokeRenderer.renderLiveStroke(canvas, currentLive, modeAccentColor)
         }
 
-        // Draw Figma-style Bounding Box Selection Overlay
+        // What this stroke really saved (patches), and the box a single bounding rect would have saved
         if (showDirtyRectOverlay) {
-            val activeRect: Rect? = if (currentLive != null && currentLive.points.isNotEmpty()) {
-                if (historyManager.mode == HistoryMode.NAIVE) {
-                    Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-                } else {
-                    currentLive.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
-                }
+            if (currentLive != null && currentLive.points.isNotEmpty()) {
+                val box = if (historyManager.mode == HistoryMode.NAIVE) Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+                else currentLive.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
+                drawSavedOverlay(canvas, listOf(box), box, modeAccentColor, live = true)
             } else {
-                lastDirtyRect
-            }
-
-            if (activeRect != null) {
-                drawCyberBoundingBoxOverlay(
-                    canvas = canvas,
-                    rect = activeRect,
-                    isLiveScanning = currentLive != null,
-                    accentColor = modeAccentColor
-                )
+                val box = lastDirtyRect
+                if (box != null) drawSavedOverlay(canvas, lastDirtyRegions.ifEmpty { listOf(box) }, box, modeAccentColor, live = false)
             }
         }
 
@@ -600,85 +625,60 @@ class DrawingView @JvmOverloads constructor(
     }
 
     /**
-     * Renders a clean Figma/Studio-style selection bounding box with:
-     * - Subtle translucent selection fill & crisp 3px stroke
-     * - 4 square white-filled corner selection handles (14x14 px)
-     * - Compact dimension & exact byte size pill tag above the bounding box
+     * Draws the patches a stroke saved as light tinted rectangles with a hairline, inside a dashed outline of
+     * the bounding box a plain dirty-rect history would have copied, plus one small label. Line widths and the
+     * text follow the zoom so they stay hairlines on screen instead of growing with the canvas.
      */
-    private fun drawCyberBoundingBoxOverlay(
-        canvas: Canvas,
-        rect: Rect,
-        isLiveScanning: Boolean,
-        accentColor: Int
-    ) {
-        val left = rect.left.toFloat()
-        val top = rect.top.toFloat()
-        val right = rect.right.toFloat()
-        val bottom = rect.bottom.toFloat()
-        val boxW = rect.width().coerceAtLeast(1)
-        val boxH = rect.height().coerceAtLeast(1)
+    private fun drawSavedOverlay(canvas: Canvas, regions: List<Rect>, box: Rect, accent: Int, live: Boolean) {
+        val density = resources.displayMetrics.density
+        val scale = (baseScale * userScale).coerceAtLeast(1e-3f)
+        val hair = density / scale
 
-        dirtyRectPaint.color = accentColor
-        dirtyRectFillPaint.color = accentColor
-        dirtyRectFillPaint.alpha = if (isLiveScanning) 26 else 16
-        handleStrokePaint.color = accentColor
+        regionFillPaint.color = accent
+        regionFillPaint.alpha = if (live) 22 else 30
+        regionLinePaint.color = accent
+        regionLinePaint.alpha = 200
+        regionLinePaint.strokeWidth = hair
+        boundsPaint.color = accent
+        boundsPaint.alpha = 110
+        boundsPaint.strokeWidth = hair
+        boundsPaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f * hair, 5f * hair), 0f)
 
-        // 1. Subtle selection fill + crisp selection frame
-        canvas.drawRect(left, top, right, bottom, dirtyRectFillPaint)
-        canvas.drawRect(left, top, right, bottom, dirtyRectPaint)
-
-        // 2. 4 Figma-style square corner handles (14x14 px)
-        val hs = 7f
-        val corners = arrayOf(
-            floatArrayOf(left, top),
-            floatArrayOf(right, top),
-            floatArrayOf(left, bottom),
-            floatArrayOf(right, bottom)
-        )
-        for (c in corners) {
-            val cx = c[0]
-            val cy = c[1]
-            canvas.drawRect(cx - hs, cy - hs, cx + hs, cy + hs, handleFillPaint)
-            canvas.drawRect(cx - hs, cy - hs, cx + hs, cy + hs, handleStrokePaint)
+        var coveredPx = 0L
+        for (r in regions) {
+            canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(), regionFillPaint)
+            canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(), regionLinePaint)
+            coveredPx += r.width().toLong() * r.height()
+        }
+        if (regions.size > 1 || regions[0] != box) {
+            canvas.drawRect(box.left.toFloat(), box.top.toFloat(), box.right.toFloat(), box.bottom.toFloat(), boundsPaint)
         }
 
-        // 3. Compact measured dimension & raw KB tag pill
-        val rawBytes = boxW.toLong() * boxH.toLong() * 4L
-        val rawKb = rawBytes.toDouble() / 1024.0
-        val fullCanvasBytes = CANVAS_SIZE.toLong() * CANVAS_SIZE.toLong() * 4L
-        val areaReductionPct = (1.0 - rawBytes.toDouble() / fullCanvasBytes.toDouble()) * 100.0
-
-        val stateLabel = if (isLiveScanning) "Đang quét" else "Đã lưu"
-        val line1 = "$stateLabel [${historyManager.mode.name}]  •  ${boxW} × ${boxH} px"
-        val line2 = if (historyManager.mode == HistoryMode.NAIVE) {
-            String.format(java.util.Locale.US, "Bản sao: %.1f KB (Toàn bộ 2048×2048)", rawKb)
-        } else {
-            String.format(
-                java.util.Locale.US,
-                "Vùng chọn: %.1f KB (Giảm %.1f%% diện tích so với 16 MB)",
-                rawKb,
-                areaReductionPct
-            )
+        // One label, rebuilt only when what it says changes
+        val key = coveredPx xor (regions.size.toLong() shl 40) xor (historyManager.mode.ordinal.toLong() shl 56) xor
+            (if (live) 1L else 0L)
+        if (key != labelKey || labelText.isEmpty()) {
+            labelKey = key
+            val kb = coveredPx * 4.0 / 1024.0
+            val size = if (kb >= 1024) String.format(java.util.Locale.US, "%.1f MB", kb / 1024.0)
+            else String.format(java.util.Locale.US, "%.0f KB", kb)
+            labelText = when {
+                historyManager.mode == HistoryMode.NAIVE -> "Cả canvas · $size"
+                regions.size == 1 -> "1 vùng · $size"
+                else -> "${regions.size} vùng · $size"
+            }
         }
-
-        badgeTitlePaint.color = accentColor
-        val textW = kotlin.math.max(badgeTitlePaint.measureText(line1), badgeSubPaint.measureText(line2))
-        val pillW = textW + 36f
-        val pillH = 74f
-
-        val pillLeft = left.coerceIn(12f, (CANVAS_SIZE - pillW - 12f).coerceAtLeast(12f))
-        val pillTop = if (top - pillH - 10f >= 12f) {
-            top - pillH - 10f
-        } else {
-            (top + 10f).coerceAtMost(CANVAS_SIZE - pillH - 12f)
-        }
-
-        badgeRectF.set(pillLeft, pillTop, pillLeft + pillW, pillTop + pillH)
-        badgeBorderPaint.color = accentColor
-        canvas.drawRoundRect(badgeRectF, 12f, 12f, badgeBgPaint)
-        canvas.drawRoundRect(badgeRectF, 12f, 12f, badgeBorderPaint)
-
-        canvas.drawText(line1, pillLeft + 18f, pillTop + 32f, badgeTitlePaint)
-        canvas.drawText(line2, pillLeft + 18f, pillTop + 60f, badgeSubPaint)
+        val textSize = 11f * density / scale
+        labelTextPaint.textSize = textSize
+        val padX = 7f * density / scale
+        val padY = 4f * density / scale
+        val textW = labelTextPaint.measureText(labelText)
+        val tagW = textW + padX * 2
+        val tagH = textSize + padY * 2
+        val tagLeft = box.left.toFloat().coerceIn(0f, (CANVAS_SIZE - tagW).coerceAtLeast(0f))
+        val tagTop = if (box.top - tagH - 4f * hair >= 0f) box.top - tagH - 4f * hair else box.top + 4f * hair
+        labelRectF.set(tagLeft, tagTop, tagLeft + tagW, tagTop + tagH)
+        canvas.drawRoundRect(labelRectF, 4f * hair, 4f * hair, labelBgPaint)
+        canvas.drawText(labelText, tagLeft + padX, tagTop + padY + textSize * 0.82f, labelTextPaint)
     }
 }
