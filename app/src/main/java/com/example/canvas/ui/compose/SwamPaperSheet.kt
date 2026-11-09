@@ -165,20 +165,6 @@ fun SwamPaperSheet(
                         "Warm nén nhanh (mức ${currentConfig.compressionLevel}); mức của Cold do mỗi patch tự quyết, chỉ nén sâu khi đáng CPU",
                         currentConfig.adaptiveCompEnabled
                     ) { push(currentConfig.copy(adaptiveCompEnabled = !currentConfig.adaptiveCompEnabled)) }
-                    if (currentConfig.adaptiveCompEnabled) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Mức tối đa cho Cold", color = InkText, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                            for (level in listOf(6, 9)) {
-                                Pill("L$level", currentConfig.coldCompressionLevel == level) {
-                                    push(currentConfig.copy(coldCompressionLevel = level))
-                                }
-                            }
-                        }
-                    }
 
                     LabSection("Hạ cấp và nạp trước")
                     for (strategy in SwamEvictionStrategy.values()) {

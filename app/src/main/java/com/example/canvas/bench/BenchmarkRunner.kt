@@ -70,6 +70,9 @@ class BenchmarkRunner(
             canvasHeight = canvasHeight
         )
 
+        // Like the drawing view: steps remember their stroke so that redo can replay it when pixels were given back
+        historyManager.opRenderer = { c, op -> op.stroke?.let { strokeRenderer.renderStroke(c, it) } }
+
         // Reset history and create fresh blank canvas
         historyManager.clear()
         val backingBitmap = Bitmap.createBitmap(
@@ -80,7 +83,11 @@ class BenchmarkRunner(
         val backingCanvas = Canvas(backingBitmap)
         backingCanvas.drawColor(Color.WHITE)
 
-        val initialHash = if (config.scenario == ScenarioType.E6_CORRECTNESS_HASH) {
+        // E5, E6 and E7 end by comparing the canvas with the blank one it started as (E5 used to compare with 0)
+        val initialHash = if (config.scenario == ScenarioType.E5_STRESS_AND_RECOVER ||
+            config.scenario == ScenarioType.E6_CORRECTNESS_HASH ||
+            config.scenario == ScenarioType.E7_UNDO_REDO_BOUNDARY
+        ) {
             computePixelCrc32(backingBitmap)
         } else {
             0L
@@ -139,6 +146,18 @@ class BenchmarkRunner(
 
                 ScenarioType.E5_STRESS_AND_RECOVER -> {
                     runStressAndRecover(
+                        config = config,
+                        drawer = drawer,
+                        bitmap = backingBitmap,
+                        canvas = backingCanvas,
+                        collector = collector,
+                        initialHash = initialHash,
+                        onProgress = onProgress
+                    )
+                }
+
+                ScenarioType.E7_UNDO_REDO_BOUNDARY -> {
+                    runUndoRedoBoundary(
                         config = config,
                         drawer = drawer,
                         bitmap = backingBitmap,
@@ -229,11 +248,12 @@ class BenchmarkRunner(
             onProgress?.invoke(step, totalSteps)
         }
 
+        historyManager.settle()            // the draw phase is over: let the background tier moves arrive, then measure the undos
         // Phase 2: Undo all
         for (step in 1..config.stepCount) {
             val startMs = System.currentTimeMillis()
             val undone = try {
-                historyManager.undo(bitmap)
+                undoTracked(bitmap, collector)
             } catch (oom: OutOfMemoryError) {
                 collector.markOom(oom)
                 return
@@ -270,6 +290,7 @@ class BenchmarkRunner(
             onProgress?.invoke(step, totalSteps)
         }
 
+        historyManager.settle()
         // Phase 2: Undo step by step, measuring latency by tier
         for (step in 1..config.stepCount) {
             val statsBefore = historyManager.stats()
@@ -282,7 +303,7 @@ class BenchmarkRunner(
 
             val startMs = System.currentTimeMillis()
             val undone = try {
-                historyManager.undo(bitmap)
+                undoTracked(bitmap, collector)
             } catch (oom: OutOfMemoryError) {
                 collector.markOom(oom)
                 return
@@ -323,7 +344,7 @@ class BenchmarkRunner(
         // Undo all
         for (step in 1..config.stepCount) {
             val startMs = System.currentTimeMillis()
-            historyManager.undo(bitmap)
+            undoTracked(bitmap, collector)
             collector.recordStepLatency(System.currentTimeMillis() - startMs)
             onProgress?.invoke(config.stepCount + step, config.stepCount * 2)
         }
@@ -362,16 +383,70 @@ class BenchmarkRunner(
             onProgress?.invoke(step, totalSteps)
         }
 
+        historyManager.settle()
         // Continuous undos (evaluating prefetch latency and hit rate)
         for (step in 1..config.stepCount) {
             val startMs = System.currentTimeMillis()
-            val undone = historyManager.undo(bitmap)
+            val undone = undoTracked(bitmap, collector)
             val latency = System.currentTimeMillis() - startMs
             collector.recordStepLatency(latency)
             onProgress?.invoke(config.stepCount + step, totalSteps)
             if (!undone) break
+            if (config.undoThinkMs > 0) kotlinx.coroutines.delay(config.undoThinkMs)
         }
 
+        collector.markSuccess()
+    }
+
+    /**
+     * Draws, then repeats rounds of "undo k steps, redo the same k steps". With small tiers the older steps sit in
+     * Warm and Cold, so every round pulls steps across the tier boundary and pushes them back.
+     */
+    private suspend fun runUndoRedoBoundary(
+        config: BenchmarkConfig,
+        drawer: ScriptedDrawer,
+        bitmap: Bitmap,
+        canvas: Canvas,
+        collector: MetricsCollector,
+        initialHash: Long,
+        onProgress: ((Int, Int) -> Unit)?
+    ) {
+        val k = config.cycleDepth.coerceIn(1, config.stepCount)
+        val total = config.stepCount + config.cycleCount * k * 2
+        var done = 0
+        for (step in 1..config.stepCount) {
+            val stroke = drawer.nextStroke(config.strokeType)
+            val startMs = System.currentTimeMillis()
+            try {
+                commitStroke(bitmap, canvas, stroke)
+            } catch (oom: OutOfMemoryError) {
+                collector.markOom(oom)
+                return
+            }
+            collector.recordStepLatency(System.currentTimeMillis() - startMs)
+            onProgress?.invoke(++done, total)
+        }
+        historyManager.settle()
+        repeat(config.cycleCount) {
+            repeat(k) {
+                val startMs = System.currentTimeMillis()
+                undoTracked(bitmap, collector)
+                collector.recordStepLatency(System.currentTimeMillis() - startMs)
+                onProgress?.invoke(++done, total)
+            }
+            repeat(k) {
+                val startMs = System.currentTimeMillis()
+                redoTracked(bitmap, collector)
+                collector.recordStepLatency(System.currentTimeMillis() - startMs)
+                onProgress?.invoke(++done, total)
+            }
+        }
+        // Proof that nothing was lost or changed on the way: undo everything, the canvas must be the blank one again
+        while (undoTracked(bitmap, collector)) { /* all the way back */ }
+        if (computePixelCrc32(bitmap) != initialHash) {
+            collector.markFailed(IllegalStateException("Canvas khác trạng thái ban đầu sau các vòng Undo/Redo"))
+            return
+        }
         collector.markSuccess()
     }
 
@@ -424,7 +499,7 @@ class BenchmarkRunner(
         // Phase 3: Undo all to verify zero data loss and full recovery
         for (step in 1..totalDrawSteps) {
             val startMs = System.currentTimeMillis()
-            val undone = historyManager.undo(bitmap)
+            val undone = undoTracked(bitmap, collector)
             val latency = System.currentTimeMillis() - startMs
             collector.recordStepLatency(latency)
             onProgress?.invoke(totalDrawSteps + step, totalOverallSteps)
@@ -439,6 +514,19 @@ class BenchmarkRunner(
                 IllegalStateException("Pixel hash mismatch after Stress! Expected CRC $initialHash but got $restoredHash")
             )
         }
+    }
+
+    /** One undo, counted, with how far ahead the prefetcher had prepared afterwards. */
+    private suspend fun undoTracked(bitmap: Bitmap, collector: MetricsCollector): Boolean {
+        val ok = historyManager.undo(bitmap)
+        if (ok) collector.recordUndoDone(historyManager.stats().prefetchLookahead)
+        return ok
+    }
+
+    private suspend fun redoTracked(bitmap: Bitmap, collector: MetricsCollector): Boolean {
+        val ok = historyManager.redo(bitmap)
+        if (ok) collector.recordRedoDone()
+        return ok
     }
 
     private suspend fun commitStroke(bitmap: Bitmap, canvas: Canvas, stroke: com.example.canvas.core.Stroke) {
@@ -480,6 +568,7 @@ class BenchmarkRunner(
                 }
             }
             val groupId = if (regions.size > 1) System.nanoTime() else 0L
+            val op = com.example.canvas.core.StrokeOp(stroke = stroke)
             regions.mapIndexed { i, rect ->
                 val patchBmp = Bitmap.createBitmap(
                     bitmap,
@@ -493,7 +582,8 @@ class BenchmarkRunner(
                     rect = rect,
                     bitmap = patchBmp,
                     sizeBytes = patchBmp.allocationByteCount.toLong(),
-                    groupId = groupId
+                    groupId = groupId,
+                    op = op
                 )
             }
         }

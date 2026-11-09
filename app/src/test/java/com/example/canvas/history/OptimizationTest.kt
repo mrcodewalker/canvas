@@ -29,15 +29,15 @@ class OptimizationTest {
     // ------------------------------------------------------------------ per-patch compression level
 
     @Test
-    fun tunerTriesEveryLevelOncePerClassBeforeDeciding() {
+    fun tunerTriesTheSingleDeepLevelOncePerClassBeforeDeciding() {
         val t = CompressionTuner()
         val cls = t.classOf(rawBytes = 8000, warmBytes = 1000)
         assertEquals(3, cls)
-        val first = t.choose(cls, 1000, 8000, baseline = 1, maxLevel = 9, ioNsPerByte = 1.0, inflateNsPerRaw = 0.0, squeeze = false)
+        val first = t.choose(cls, 1000, 8000, baseline = 1, maxLevel = 6, ioNsPerByte = 1.0, inflateNsPerRaw = 0.0, squeeze = false)
         assertEquals(6, first)
-        t.record(cls, first, 8000, 1000, 900, 1_000)
-        val second = t.choose(cls, 1000, 8000, 1, 9, 1.0, 0.0, false)
-        assertEquals(9, second)
+        t.record(cls, first, 8000, 1000, 900, 100)
+        // learned: 100 bytes saved at 10 ns/byte of disk beats 1 us of CPU; there is no other level to try
+        assertEquals(6, t.choose(cls, 1000, 8000, 1, 6, 10.0, 0.0, false))
     }
 
     @Test
@@ -52,14 +52,13 @@ class OptimizationTest {
     }
 
     @Test
-    fun tunerPicksTheLevelWithTheBestNetBenefitForThatClass() {
+    fun tunerKeepsTheDeepLevelOnlyWhenItsNetBenefitIsPositive() {
         val t = CompressionTuner()
         val cls = 2
-        // level 6 saves 30% for little CPU; level 9 saves 32% but costs 10x more CPU
+        // level 6 saves 30% for little CPU: worth it on a slow disk, not worth it on a very fast one
         t.record(cls, 6, 100_000, 25_000, 17_500, 100_000)
-        t.record(cls, 9, 100_000, 25_000, 17_000, 1_000_000)
-        val level = t.choose(cls, 25_000, 100_000, 1, 9, ioNsPerByte = 20.0, inflateNsPerRaw = 0.0, squeeze = false)
-        assertEquals(6, level)
+        assertEquals(6, t.choose(cls, 25_000, 100_000, 1, 6, ioNsPerByte = 20.0, inflateNsPerRaw = 0.0, squeeze = false))
+        assertEquals(1, t.choose(cls, 25_000, 100_000, 1, 6, ioNsPerByte = 0.0001, inflateNsPerRaw = 0.0, squeeze = false))
     }
 
     @Test

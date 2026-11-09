@@ -130,8 +130,10 @@ internal object RedoMerge {
             if (freed >= mustFree) break
             val g = all[i]
             for (p in g) freed += p.bitmap?.takeIf { !it.isRecycled }?.allocationByteCount?.toLong() ?: 0L
-            for (p in g) p.recycle()
-            if (g.first().op == null) gone.add(i)
+            val replayable = g.first().op != null
+            // a step that can be replayed only loses its pixel cache; what its undo will need stays known
+            for (p in g) if (replayable) p.freePixels() else p.recycle()
+            if (!replayable) gone.add(i)
         }
         if (gone.isNotEmpty()) {
             stack.clear()

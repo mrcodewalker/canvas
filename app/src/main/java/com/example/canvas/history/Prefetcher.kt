@@ -42,6 +42,10 @@ class Prefetcher(
     private val early = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Deferred<ColdFilePayload>>()
     private val ioScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + ioDispatcher)
 
+    /** Keep the Cold file of a patch that was read back, so sending it down again needs no write. */
+    @Volatile
+    var keepColdFiles: Boolean = true
+
     val hits = AtomicInteger(0)
     val misses = AtomicInteger(0)
 
@@ -371,7 +375,13 @@ class Prefetcher(
 
             // Leave Cold first (uses the Cold size for accounting). If the patch was undone while we
             // were reading, it is no longer in Cold and must not be resurrected into Warm.
-            if (!coldStore.remove(patch)) return
+            if (keepColdFiles) {
+                val d = coldStore.detach(patch)
+                if (!d.wasCold) return
+                patch.keptFile = d.keptFile
+            } else if (!coldStore.remove(patch)) {
+                return
+            }
 
             // Successfully read into RAM -> promote to WARM
             patch.compressedBytes = payload.compressedBytes

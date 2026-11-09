@@ -20,6 +20,28 @@ class MetricsCollector {
     private val samples = CopyOnWriteArrayList<MemorySnapshot>()
     private val stepLatenciesMs = CopyOnWriteArrayList<Long>()
     private val tierLatencies = java.util.concurrent.ConcurrentHashMap<String, CopyOnWriteArrayList<Long>>()
+    private val lookaheadDepths = CopyOnWriteArrayList<Int>()
+
+    /** Undo and redo steps done so far in this run (for a live counter). */
+    @Volatile var undoCount: Int = 0
+        private set
+    @Volatile var redoCount: Int = 0
+        private set
+    /** How many strokes ahead the prefetcher had prepared after the latest undo. */
+    @Volatile var lastLookahead: Int = 0
+        private set
+
+    fun recordUndoDone(lookahead: Int) {
+        undoCount++
+        lastLookahead = lookahead
+        lookaheadDepths.add(lookahead)
+    }
+
+    fun recordRedoDone() {
+        redoCount++
+    }
+
+    fun getLookaheads(): List<Int> = lookaheadDepths.toList()
 
     var status: BenchmarkStatus = BenchmarkStatus.IDLE
         private set
@@ -68,6 +90,10 @@ class MetricsCollector {
         samples.clear()
         stepLatenciesMs.clear()
         tierLatencies.clear()
+        lookaheadDepths.clear()
+        undoCount = 0
+        redoCount = 0
+        lastLookahead = 0
         completedSteps = 0
         errorMessage = null
         status = BenchmarkStatus.RUNNING

@@ -23,6 +23,11 @@ data class HistoryStats(
     val prefetchMisses: Int = 0,
     val prefetchLookahead: Int = 0,
     val predecodedPatches: Int = 0,
+    /** RAM held by bitmaps decompressed ahead of time for the next undos (Hot form of Warm steps). */
+    val predecodedBytes: Long = 0L,
+    /** Budgets in force for Hot and Warm (Tiered only), so a display can show how full each tier is. */
+    val hotBudgetBytes: Long = 0L,
+    val warmBudgetBytes: Long = 0L,
     /** Breakdown of the last undo: disk read, decompression, and drawing the patch (milliseconds). */
     val lastUndoReadMs: Double = 0.0,
     val lastUndoDecompressMs: Double = 0.0,
@@ -37,6 +42,17 @@ data class HistoryStats(
     val costApplyMs: Double = 0.0,
     val oomCleanerReclaimedBytes: Long = 0L,
     val deduplicatedPatches: Int = 0,
+    /** Tier moves that reused an existing compressed form instead of compressing again. */
+    val reusedEncodings: Int = 0,
+    /** Tier moves to Cold that reused a file already on disk instead of writing a new one. */
+    val reusedColdFiles: Int = 0,
+    /** How many patches entered Warm in each storage format (see CodecSelector), and what choosing cost/saved. */
+    val codecSolid: Int = 0,
+    val codecRle: Int = 0,
+    val codecDelta: Int = 0,
+    val codecDeflate: Int = 0,
+    val codecSavedBytes: Long = 0L,
+    val codecTrialMs: Double = 0.0,
     /** Cold under pressure: events, bytes saved without losing data, strokes that had to be dropped. */
     val coldPressureEvents: Int = 0,
     val coldRescuedBytes: Long = 0L,
@@ -51,6 +67,9 @@ interface HistoryManager {
 
     /** Draws a recorded step onto a canvas; set by the view so redo can replay (merge) steps. */
     var opRenderer: ((android.graphics.Canvas, com.example.canvas.core.StrokeOp) -> Unit)?
+
+    /** Waits until steps that were still moving down a tier in the background have arrived; no-op where there is none. */
+    suspend fun settle() {}
 
     suspend fun commit(before: Patch)
     suspend fun undo(canvas: Bitmap): Boolean

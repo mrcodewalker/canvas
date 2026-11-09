@@ -1,7 +1,5 @@
 package com.example.canvas.history
 
-import java.util.zip.Deflater
-
 /**
  * Picks the Deflate level **per patch**, from what was measured on this user's own strokes.
  *
@@ -13,7 +11,7 @@ import java.util.zip.Deflater
  *
  * A level is chosen when `bytes saved * (cost of writing + reading a byte) > CPU time`; otherwise the patch
  * is written as it is. Levels never tried for a class are tried first, which is how the tables fill up.
- * Candidate levels are the named zlib levels (default 6 and best 9) up to the maximum the user allows.
+ * There is a single candidate deep level (the user's maximum, default 6), not a ladder of them.
  */
 class CompressionTuner {
 
@@ -46,10 +44,12 @@ class CompressionTuner {
         s.cpuNs += compressNs.coerceAtLeast(0L)
     }
 
-    /** Levels worth considering above [baseline], up to [maxLevel]. */
+    /**
+     * The one deeper level worth trying above [baseline]: [maxLevel] itself. Neighbouring zlib levels differ by
+     * a few percent in size, so offering several only multiplies recompression work (and the tables to learn).
+     */
     private fun candidates(baseline: Int, maxLevel: Int): List<Int> =
-        listOf(6, Deflater.BEST_COMPRESSION).filter { it > baseline && it <= maxLevel }
-            .ifEmpty { if (maxLevel > baseline) listOf(maxLevel) else emptyList() }
+        if (maxLevel > baseline) listOf(maxLevel) else emptyList()
 
     /**
      * @param ioNsPerByte what one byte costs to write and read back on this device (measured); null if unknown

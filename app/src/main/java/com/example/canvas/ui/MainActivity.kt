@@ -115,6 +115,9 @@ import com.example.canvas.ui.theme.CyberSurface
 import com.example.canvas.ui.theme.InkText
 import com.example.canvas.ui.compose.LabSheet
 import com.example.canvas.ui.compose.MemoryPill
+import com.example.canvas.ui.compose.DemoCharts
+import com.example.canvas.ui.compose.DemoStageHeader
+import com.example.canvas.ui.compose.DemoStageState
 import com.example.canvas.ui.compose.StatusStrip
 import com.example.canvas.ui.compose.StudioTopBar
 import com.example.canvas.ui.compose.ToolDock
@@ -177,6 +180,8 @@ class MainActivity : ComponentActivity() {
     private var autoDemoInstruction by mutableStateOf("")
     private var autoDemoProgress by mutableFloatStateOf(0f)
     private var latestDemoReport by mutableStateOf<SwamComparisonReport?>(null)
+    private var demoStage by mutableStateOf(DemoStageState())
+    private var demoRestoreConfig: com.example.canvas.history.TierConfig? = null
     private var showDemoReportModal by mutableStateOf(false)
 
     // Burst & OOM Alert States (works across ALL 3 modes: NAIVE, DIRTY_RECT, TIERED)
@@ -391,15 +396,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Automated 3-Mode Comparison Runner:
-     * Executes real drawing and undo operations across NAIVE, DIRTY_RECT, and TIERED modes
-     * and collects 100% genuine, un-clamped telemetry from HistoryStats and System.nanoTime().
+     * Automated 3-mode comparison made to be watched: the canvas stays visible, two charts grow stroke by stroke
+     * (RAM for the history, and time per stroke) and keep every finished mode on screen for comparison. The Tiered
+     * part draws many more strokes, faster, so the flat line against the two climbing ones is easy to see.
+     * All numbers are measured from the real history managers.
      */
     private fun startThreeModeAutoDemo() {
         val view = drawingViewRef ?: return
         if (isAutoDemoRunning) {
             autoDemoJob?.cancel()
             isAutoDemoRunning = false
+            demoStage = DemoStageState()
             return
         }
 
@@ -420,54 +427,94 @@ class MainActivity : ComponentActivity() {
         val availableHistoryHeapMb = (maxHeapMb * 0.65).toInt()
         val coldBudgetMb = 500
         val demoDrawer = ScriptedDrawer(seed = 42L)
+        val mb = 1024.0 * 1024.0
+
+        demoStage = DemoStageState(
+            visible = true, phase = 0,
+            title = "So sánh 3 cách lưu lịch sử hoàn tác",
+            explain = "Cùng một bộ nét vẽ, ba cách lưu. Hai biểu đồ bên dưới cho thấy RAM và thời gian của từng cách khi số nét tăng dần."
+        )
 
         autoDemoJob = lifecycleScope.launch {
+            var completed = false
             try {
+                // One step of one mode: put its RAM and time on the charts and refresh the tier meter
+                fun record(index: Int, ramMb: Double, stepMs: Double, action: String? = null, caption: String = "") {
+                    val s = view.historyManager.stats()
+                    demoStage = demoStage.copy(
+                        ram = demoStage.ram.toMutableList().also { it[index] = it[index] + ramMb.toFloat() },
+                        ms = demoStage.ms.toMutableList().also { it[index] = it[index] + stepMs.toFloat() },
+                        hotMb = s.hotBytes / mb, readyMb = s.predecodedBytes / mb, warmMb = s.warmBytes / mb, coldMb = s.coldBytes / mb,
+                        hotBudgetMb = s.hotBudgetBytes / mb, warmBudgetMb = s.warmBudgetBytes / mb,
+                        steps = s.totalSteps, action = action ?: demoStage.action, meterCaption = caption
+                    )
+                }
+                fun refreshMeter(action: String? = null, caption: String = "") {
+                    val s = view.historyManager.stats()
+                    demoStage = demoStage.copy(
+                        hotMb = s.hotBytes / mb, readyMb = s.predecodedBytes / mb, warmMb = s.warmBytes / mb, coldMb = s.coldBytes / mb,
+                        hotBudgetMb = s.hotBudgetBytes / mb, warmBudgetMb = s.warmBudgetBytes / mb,
+                        steps = s.totalSteps, action = action ?: demoStage.action, meterCaption = caption
+                    )
+                    refreshTelemetrySnapshot()
+                }
+                suspend fun cleanUp() {
+                    view.historyManager.clear()
+                    System.gc()
+                    demoStage = demoStage.copy(
+                        hotMb = 0.0, readyMb = 0.0, warmMb = 0.0, coldMb = 0.0, steps = 0, action = "",
+                        meterCaption = "Đã dọn bộ nhớ để đo cách tiếp theo (đường trên biểu đồ vẫn giữ nguyên)."
+                    )
+                    refreshTelemetrySnapshot()
+                    delay(1200L)
+                }
+
+                delay(3000L)
+
                 // =========================================================================
-                // PHA 1: NAIVE (Lưu bản sao toàn bộ Canvas 16 MiB/bước trong RAM)
+                // PHA 1: NAIVE
                 // =========================================================================
                 switchMode(HistoryMode.NAIVE)
                 view.clearCanvas()
                 System.gc()
-                delay(200L)
+                demoStage = demoStage.copy(
+                    phase = 1, progress = 0.02f,
+                    title = "1 · Naive: chép cả canvas mỗi nét",
+                    explain = "Mỗi nét sao chép toàn bộ canvas 2048×2048 (16 MB) để hoàn tác. RAM tăng thẳng đứng cho tới khi chạm ngưỡng an toàn.",
+                    action = "", meterCaption = ""
+                )
+                delay(3000L)
 
-                val targetNaiveSteps = 6
                 var naiveExecuted = 0
                 var naiveTotalCommitNs = 0L
-
-                for (i in 1..targetNaiveSteps) {
+                var naiveStopped = false
+                for (i in 1..12) {
                     if (!isActive) return@launch
-
-                    autoDemoPhaseTitle = "Pha 1/3: Naive (Bản sao 16 MB/bước)"
-                    autoDemoInstruction = "Bước $i/$targetNaiveSteps: Đang cấp phát bản sao toàn bộ Canvas 2048×2048 trong RAM..."
-                    autoDemoProgress = (i.toFloat() / targetNaiveSteps) * 0.30f
-
+                    autoDemoProgress = (i / 12f) * 0.15f
                     val stroke = demoDrawer.nextStroke(StrokeType.LARGE)
+                    var ms = 0.0
                     try {
                         val t0 = System.nanoTime()
                         view.drawProgrammaticStrokeSuspend(stroke)
-                        naiveTotalCommitNs += (System.nanoTime() - t0)
+                        val dt = System.nanoTime() - t0
+                        naiveTotalCommitNs += dt
+                        ms = dt / 1_000_000.0
                         naiveExecuted++
                     } catch (_: OutOfMemoryError) {
                         System.gc()
+                        naiveStopped = true
                         break
                     }
-                    refreshTelemetrySnapshot()
-                    delay(220L)
+                    record(0, view.historyManager.stats().hotBytes / mb, ms, "Nét $i · lưu thêm 16 MB")
+                    delay(600L)
                 }
+                if (naiveStopped) demoStage = demoStage.copy(action = "Naive dừng: chạm ngưỡng RAM an toàn, không vẽ thêm được.")
 
                 val naiveStats = view.historyManager.stats()
-                val naiveHotMb = naiveStats.hotBytes / (1024.0 * 1024.0)
-                val naiveAvgKb = if (naiveStats.totalSteps > 0) {
-                    (naiveStats.hotBytes / 1024.0) / naiveStats.totalSteps
-                } else 0.0
-                val naiveAvgLatencyMs = if (naiveExecuted > 0) {
-                    (naiveTotalCommitNs / 1_000_000.0) / naiveExecuted
-                } else 0.0
-                val naiveMaxSteps = if (naiveAvgKb > 0.0) {
-                    ((availableHistoryHeapMb * 1024.0) / naiveAvgKb).toInt()
-                } else 0
-
+                val naiveHotMb = naiveStats.hotBytes / mb
+                val naiveAvgKb = if (naiveStats.totalSteps > 0) (naiveStats.hotBytes / 1024.0) / naiveStats.totalSteps else 0.0
+                val naiveAvgLatencyMs = if (naiveExecuted > 0) (naiveTotalCommitNs / 1_000_000.0) / naiveExecuted else 0.0
+                val naiveMaxSteps = if (naiveAvgKb > 0.0) ((availableHistoryHeapMb * 1024.0) / naiveAvgKb).toInt() else 0
                 val naiveMetrics = ModeEvaluationMetrics(
                     mode = HistoryMode.NAIVE,
                     stepsExecuted = naiveStats.totalSteps,
@@ -484,54 +531,54 @@ class MainActivity : ComponentActivity() {
                     maxUndoInRamSteps = naiveMaxSteps,
                     maxUndoWithDiskSteps = naiveMaxSteps
                 )
-
-                view.historyManager.clear()
-                System.gc()
-                autoDemoInstruction = "Đã ghi nhận số liệu Naive (${String.format(Locale.US, "%.1f", naiveHotMb)} MB RAM cho ${naiveStats.totalSteps} bước) và giải phóng bộ nhớ."
-                delay(650L)
+                delay(2600L)
+                cleanUp()
 
                 // =========================================================================
-                // PHA 2: DIRTY_RECT (Chỉ cắt khung bao nét vẽ lưu trong RAM)
+                // PHA 2: DIRTY RECT
                 // =========================================================================
                 switchMode(HistoryMode.DIRTY_RECT)
                 view.clearCanvas()
                 System.gc()
-                delay(200L)
+                demoStage = demoStage.copy(
+                    phase = 2, progress = 0.17f,
+                    title = "2 · Dirty rect: chỉ lưu vùng thay đổi",
+                    explain = "Chỉ lưu vùng nét đi qua, không lưu cả canvas. Nét nhỏ rất nhẹ; nét to phủ rộng thì RAM vẫn leo lên và không có nơi nào để đẩy bớt.",
+                    action = "", meterCaption = ""
+                )
+                delay(3000L)
 
-                val dirtyTotalSteps = 18
+                val dirtyTotalSteps = 60
                 var dirtyTotalCommitNs = 0L
                 for (i in 1..dirtyTotalSteps) {
                     if (!isActive) return@launch
-                    val kind = if (i <= 12) StrokeType.SMALL else StrokeType.LARGE
-                    autoDemoPhaseTitle = "Pha 2/3: Dirty Rect (Cắt khung bao nét vẽ)"
-                    autoDemoInstruction = "Bước $i/$dirtyTotalSteps: Cắt vùng bao nét vẽ (${kind.name}) lưu trực tiếp vào RAM..."
-                    autoDemoProgress = 0.30f + (i.toFloat() / dirtyTotalSteps) * 0.30f
-
+                    val kind = if (i <= 36) StrokeType.SMALL else StrokeType.LARGE
+                    autoDemoProgress = 0.17f + (i.toFloat() / dirtyTotalSteps) * 0.25f
                     val stroke = demoDrawer.nextStroke(kind)
+                    var ms = 0.0
                     try {
                         val t0 = System.nanoTime()
                         view.drawProgrammaticStrokeSuspend(stroke)
-                        dirtyTotalCommitNs += (System.nanoTime() - t0)
+                        val dt = System.nanoTime() - t0
+                        dirtyTotalCommitNs += dt
+                        ms = dt / 1_000_000.0
                     } catch (_: OutOfMemoryError) {
                         System.gc()
+                        demoStage = demoStage.copy(action = "Dirty rect dừng ở nét $i: chạm ngưỡng RAM an toàn.")
                         break
                     }
-                    refreshTelemetrySnapshot()
-                    delay(140L)
+                    record(
+                        1, view.historyManager.stats().hotBytes / mb, ms,
+                        "Nét $i/$dirtyTotalSteps · ${if (kind == StrokeType.SMALL) "nét nhỏ" else "nét to"}"
+                    )
+                    delay(if (kind == StrokeType.SMALL) 170L else 260L)
                 }
 
                 val dirtyStats = view.historyManager.stats()
-                val dirtyHotMb = dirtyStats.hotBytes / (1024.0 * 1024.0)
-                val dirtyAvgKb = if (dirtyStats.totalSteps > 0) {
-                    (dirtyStats.hotBytes / 1024.0) / dirtyStats.totalSteps
-                } else 0.0
-                val dirtyAvgLatencyMs = if (dirtyStats.totalSteps > 0) {
-                    (dirtyTotalCommitNs / 1_000_000.0) / dirtyStats.totalSteps
-                } else 0.0
-                val dirtyMaxSteps = if (dirtyAvgKb > 0.0) {
-                    ((availableHistoryHeapMb * 1024.0) / dirtyAvgKb).toInt()
-                } else 0
-
+                val dirtyHotMb = dirtyStats.hotBytes / mb
+                val dirtyAvgKb = if (dirtyStats.totalSteps > 0) (dirtyStats.hotBytes / 1024.0) / dirtyStats.totalSteps else 0.0
+                val dirtyAvgLatencyMs = if (dirtyStats.totalSteps > 0) (dirtyTotalCommitNs / 1_000_000.0) / dirtyStats.totalSteps else 0.0
+                val dirtyMaxSteps = if (dirtyAvgKb > 0.0) ((availableHistoryHeapMb * 1024.0) / dirtyAvgKb).toInt() else 0
                 val dirtyMetrics = ModeEvaluationMetrics(
                     mode = HistoryMode.DIRTY_RECT,
                     stepsExecuted = dirtyStats.totalSteps,
@@ -548,26 +595,37 @@ class MainActivity : ComponentActivity() {
                     maxUndoInRamSteps = dirtyMaxSteps,
                     maxUndoWithDiskSteps = dirtyMaxSteps
                 )
-
-                delay(600L)
+                delay(2600L)
+                cleanUp()
 
                 // =========================================================================
-                // PHA 3: TIERED (Hot RAM -> Warm Deflate -> Cold Flash + Undo Prefetch)
+                // PHA 3: TIERED, many more strokes, faster
                 // =========================================================================
                 switchMode(HistoryMode.TIERED)
                 view.clearCanvas()
                 System.gc()
-                delay(200L)
+                // A small budget, said out loud on screen: with the full one even 150 strokes barely leave Warm and
+                // the audience would not see the Cold tier at all
+                (view.historyManager as? TieredHistory)?.let { t ->
+                    demoRestoreConfig = t.tierConfig
+                    t.updateTierConfig(t.tierConfig.copy(autoBudgets = false, hotBudgetBytes = 1L * 1024 * 1024, warmBudgetBytes = 512L * 1024))
+                }
+                demoStage = demoStage.copy(
+                    phase = 3, progress = 0.45f,
+                    title = "3 · Tiered: Hot → Warm → Cold",
+                    explain = "Nét mới ở Hot, nét cũ nén sang Warm, cũ hơn nữa ghi xuống đĩa Cold. Demo thu nhỏ Hot (1 MB) và Warm (0,5 MB) để thấy đủ ba tầng. RAM gần như đi ngang dù vẽ rất nhiều nét.",
+                    action = "", meterCaption = ""
+                )
+                delay(3200L)
 
-                val tieredDrawSteps = 32
+                val tieredDrawSteps = 160
                 var repeatedStrokeForDedup: com.example.canvas.core.Stroke? = null
-
+                var announcedWarm = false
+                var announcedCold = false
                 for (i in 1..tieredDrawSteps) {
                     if (!isActive) return@launch
-                    val kind = if (i % 3 == 0) StrokeType.LARGE else StrokeType.SMALL
-                    autoDemoPhaseTitle = "Pha 3/3: Tiered (Hot → Warm → Cold)"
-                    autoDemoInstruction = "Bước $i/$tieredDrawSteps: Tự động chuyển các bước cũ từ Hot sang Warm (nén) và Cold (Flash)..."
-                    autoDemoProgress = 0.60f + (i.toFloat() / tieredDrawSteps) * 0.25f
+                    val kind = if (i % 2 == 0) StrokeType.LARGE else StrokeType.SMALL
+                    autoDemoProgress = 0.45f + (i.toFloat() / tieredDrawSteps) * 0.40f
 
                     // At steps 25 and 26, draw with white on the same coordinates so two identical
                     // before-patches enter WarmStore and can be genuinely deduplicated by CRC32.
@@ -578,54 +636,70 @@ class MainActivity : ComponentActivity() {
                         26 -> repeatedStrokeForDedup ?: demoDrawer.nextStroke(kind)
                         else -> demoDrawer.nextStroke(kind)
                     }
+                    val t0 = System.nanoTime()
                     view.drawProgrammaticStrokeSuspend(stroke)
-                    if (i % 2 == 0 || i == tieredDrawSteps) {
-                        refreshTelemetrySnapshot()
+                    val ms = (System.nanoTime() - t0) / 1_000_000.0
+
+                    val s = view.historyManager.stats()
+                    val action = when {
+                        s.coldSteps > 0 && !announcedCold -> { announcedCold = true; "Warm đầy: nét cũ nhất được GHI XUỐNG ĐĨA (Cold)" }
+                        s.warmSteps > 0 && !announcedWarm -> { announcedWarm = true; "Nét cũ bắt đầu được NÉN sang Warm" }
+                        else -> "Nét $i/$tieredDrawSteps"
                     }
-                    delay(95L)
+                    record(2, (s.hotBytes + s.warmBytes) / mb, ms, action)
+                    // quick, but the three "first time" moments are held long enough to read
+                    delay(if (action.startsWith("Nét ")) 45L else 1400L)
                 }
 
                 // Run OOM Cleaner to deduplicate any identical patches in WarmStore
-                autoDemoInstruction = "Đang chạy bộ dọn trùng lặp CRC32 trên tầng Warm..."
+                demoStage = demoStage.copy(action = "Dọn trùng lặp trên Warm: hai bước giống hệt chỉ giữ một bản (CRC32)")
                 val tieredMgr = view.historyManager as? TieredHistory
                 val oomSavedBytes = tieredMgr?.runOomCleaner() ?: 0L
-                delay(250L)
-                refreshTelemetrySnapshot()
+                delay(1200L)
+                refreshMeter()
 
                 val statsPeakTiered = view.historyManager.stats()
-                val peakHotMb = statsPeakTiered.hotBytes / (1024.0 * 1024.0)
-                val peakWarmMb = statsPeakTiered.warmBytes / (1024.0 * 1024.0)
-                val peakColdMb = statsPeakTiered.coldBytes / (1024.0 * 1024.0)
+                val peakHotMb = statsPeakTiered.hotBytes / mb
+                val peakWarmMb = statsPeakTiered.warmBytes / mb
+                val peakColdMb = statsPeakTiered.coldBytes / mb
                 val totalActualBytes = statsPeakTiered.hotBytes + statsPeakTiered.warmBytes + statsPeakTiered.coldBytes
                 val measuredCompRatio = if (totalActualBytes > 0L && statsPeakTiered.rawEquivalentBytes > 0L) {
                     statsPeakTiered.rawEquivalentBytes.toDouble() / totalActualBytes.toDouble()
                 } else 1.0
-                val compressedTierBytes = statsPeakTiered.warmBytes + statsPeakTiered.coldBytes
-                val compressedTierSteps = statsPeakTiered.warmSteps + statsPeakTiered.coldSteps
-                val avgTieredStepKb = if (compressedTierSteps > 0) {
-                    (compressedTierBytes / 1024.0) / compressedTierSteps
-                } else if (statsPeakTiered.totalSteps > 0) {
-                    (totalActualBytes / 1024.0) / statsPeakTiered.totalSteps
-                } else 0.0
+                // everything that is stored (Hot raw + Warm and Cold compressed) per step: no flattering subset
+                val avgTieredStepKb = if (statsPeakTiered.totalSteps > 0) (totalActualBytes / 1024.0) / statsPeakTiered.totalSteps else 0.0
+                val tieredSteps = statsPeakTiered.totalSteps
+                demoStage = demoStage.copy(
+                    action = String.format(Locale.US, "Tiered: %d nét, chỉ %.1f MB RAM (+ %.1f MB trên đĩa)", tieredSteps, peakHotMb + peakWarmMb, peakColdMb)
+                )
+                delay(2600L)
 
-                // Execute 12 continuous Undos to trigger Prefetcher from Cold -> Warm and measure real Undo latency
-                val undoTestSteps = 12
+                // Continuous undo: Cold steps come back through the prefetcher
+                demoStage = demoStage.copy(
+                    title = "3 · Tiered: hoàn tác liên tiếp",
+                    explain = "Hoàn tác lấy nét mới nhất trước: Hot rồi Warm hết trước, sau đó tới Cold. Bộ nạp trước đưa vài nét kế tiếp đi lên: Cold → Warm (đọc đĩa) → Hot (giải nén sẵn, phần \"Sẵn\" trên thanh). Số nét đi lên bị giới hạn bởi ngân sách RAM.",
+                    action = ""
+                )
+                delay(2400L)
+
+                val undoTestSteps = 40
                 var totalUndoNs = 0L
                 var undoExecuted = 0
                 for (u in 1..undoTestSteps) {
                     if (!isActive) return@launch
-                    autoDemoInstruction = "Đang hoàn tác bước $u/$undoTestSteps và đo độ trễ khôi phục thực tế..."
-                    autoDemoProgress = 0.85f + (u.toFloat() / undoTestSteps) * 0.15f
+                    autoDemoProgress = 0.85f + (u.toFloat() / undoTestSteps) * 0.12f
                     val t0 = System.nanoTime()
                     val ok = view.undoSuspend()
+                    val ms = (System.nanoTime() - t0) / 1_000_000.0
                     totalUndoNs += (System.nanoTime() - t0)
                     if (ok) undoExecuted++
-                    refreshTelemetrySnapshot()
-                    delay(90L)
+                    val st = view.historyManager.stats()
+                    val tp = st.prefetchHits + st.prefetchMisses
+                    val hit = if (tp > 0) st.prefetchHits * 100.0 / tp else 0.0
+                    refreshMeter(String.format(Locale.US, "Hoàn tác %d/%d · %.0f ms · nạp trước sẵn %d nét kế tiếp · trúng %.0f%%", u, undoTestSteps, ms, st.prefetchLookahead, hit))
+                    delay(110L)
                 }
-                val realUndoLatencyMs = if (undoExecuted > 0) {
-                    (totalUndoNs / 1_000_000.0) / undoExecuted
-                } else 0.0
+                val realUndoLatencyMs = if (undoExecuted > 0) (totalUndoNs / 1_000_000.0) / undoExecuted else 0.0
 
                 val statsAfterUndo = view.historyManager.stats()
                 val totalPrefetch = statsAfterUndo.prefetchHits + statsAfterUndo.prefetchMisses
@@ -633,16 +707,12 @@ class MainActivity : ComponentActivity() {
                     (statsAfterUndo.prefetchHits.toDouble() / totalPrefetch.toDouble()) * 100.0
                 } else 0.0
 
-                val swamRamCapSteps = if (avgTieredStepKb > 0.0) {
-                    ((availableHistoryHeapMb * 1024.0) / avgTieredStepKb).toInt()
-                } else 0
-                val swamDiskCapSteps = if (avgTieredStepKb > 0.0) {
-                    swamRamCapSteps + ((coldBudgetMb * 1024.0) / avgTieredStepKb).toInt()
-                } else 0
+                val swamRamCapSteps = if (avgTieredStepKb > 0.0) ((availableHistoryHeapMb * 1024.0) / avgTieredStepKb).toInt() else 0
+                val swamDiskCapSteps = if (avgTieredStepKb > 0.0) swamRamCapSteps + ((coldBudgetMb * 1024.0) / avgTieredStepKb).toInt() else 0
 
                 val tieredMetrics = ModeEvaluationMetrics(
                     mode = HistoryMode.TIERED,
-                    stepsExecuted = statsPeakTiered.totalSteps,
+                    stepsExecuted = tieredSteps,
                     stoppedNearOom = false,
                     peakRamMb = peakHotMb + peakWarmMb,
                     avgStepSizeKb = avgTieredStepKb,
@@ -657,7 +727,7 @@ class MainActivity : ComponentActivity() {
                     maxUndoWithDiskSteps = swamDiskCapSteps
                 )
 
-                val finalReport = SwamComparisonReport(
+                latestDemoReport = SwamComparisonReport(
                     deviceHeapLimitMb = maxHeapMb,
                     availableHeapForHistoryMb = availableHistoryHeapMb,
                     coldStorageBudgetMb = coldBudgetMb,
@@ -666,10 +736,24 @@ class MainActivity : ComponentActivity() {
                     tieredSwam = tieredMetrics
                 )
 
-                latestDemoReport = finalReport
-                showDemoReportModal = true
+                // The ending: what was measured, in plain words
+                demoStage = demoStage.copy(
+                    phase = 4, progress = 1f,
+                    title = "Kết quả",
+                    explain = String.format(
+                        Locale.US,
+                        "Naive: %d nét, %.0f MB. Dirty rect: %d nét, %.0f MB. Tiered: %d nét, %.1f MB RAM (+ %.1f MB đĩa). Hoàn tác trung bình %.0f ms, nạp trước trúng %.0f%%.",
+                        naiveStats.totalSteps, naiveHotMb, dirtyStats.totalSteps, dirtyHotMb, tieredSteps, peakHotMb + peakWarmMb, peakColdMb,
+                        realUndoLatencyMs, hitRatePct
+                    ),
+                    action = "Số đo thật trên thiết bị này, một lần chạy. Nhấn Báo cáo để xem chi tiết."
+                )
+                completed = true
             } finally {
+                demoRestoreConfig?.let { cfg -> (drawingViewRef?.historyManager as? TieredHistory)?.updateTierConfig(cfg) }
+                demoRestoreConfig = null
                 isAutoDemoRunning = false
+                if (!completed) demoStage = DemoStageState()
                 refreshTelemetrySnapshot()
             }
         }
@@ -853,6 +937,8 @@ class MainActivity : ComponentActivity() {
                     mode = currentMode,
                     canUndo = currentTelemetry.totalSteps > 0,
                     canRedo = currentTelemetry.redoSteps > 0,
+                    undoSteps = currentTelemetry.totalSteps,
+                    redoSteps = currentTelemetry.redoSteps,
                     zoomScale = currentZoomScale,
                     trackerOpen = trackerVisible,
                     onUndo = {
@@ -906,20 +992,18 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AnimatedVisibility(
-                            visible = isAutoDemoRunning,
+                            visible = demoStage.visible,
                             enter = fadeIn() + expandVertically(),
                             exit = fadeOut() + shrinkVertically()
                         ) {
-                            StatusStrip(
-                                title = autoDemoPhaseTitle,
-                                detail = autoDemoInstruction,
-                                accent = NeonCyan,
-                                progress = autoDemoProgress,
-                                primaryLabel = "Dừng",
-                                onPrimary = {
+                            DemoStageHeader(
+                                state = demoStage,
+                                onStop = {
                                     autoDemoJob?.cancel()
                                     isAutoDemoRunning = false
-                                }
+                                    demoStage = DemoStageState()
+                                },
+                                onOpenReport = { if (latestDemoReport != null) showDemoReportModal = true }
                             )
                         }
 
@@ -987,7 +1071,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        if (isXRayMinimized && !trackerVisible) {
+                        if (demoStage.visible) {
+                            // the stage above is the one place to look while the demo runs
+                        } else if (isXRayMinimized && !trackerVisible) {
                             MemoryPill(
                                 telemetry = currentTelemetry,
                                 expanded = false,
@@ -1022,8 +1108,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // While the 3-mode demo runs, the scoreboard takes the place of the tool dock
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = demoStage.visible,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(horizontal = 12.dp, vertical = 14.dp),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        DemoCharts(demoStage)
+                    }
+
                     // Bottom: a one-line caption and the tool dock
-                    Column(
+                    if (!demoStage.visible) Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 18.dp),

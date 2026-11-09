@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,6 +60,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.canvas.bench.BenchmarkConfig
 import com.example.canvas.bench.BenchmarkRunner
+import com.example.canvas.bench.ExperimentSuites
+import com.example.canvas.bench.VariantResult
+import com.example.canvas.bench.SuiteAggregation
+import com.example.canvas.ui.compose.SuiteResultView
+import com.example.canvas.ui.compose.ImprovementMap
+import com.example.canvas.ui.compose.variantColor
 import com.example.canvas.bench.ScenarioType
 import com.example.canvas.bench.StrokeType
 import com.example.canvas.history.DirtyRectHistory
@@ -139,15 +146,15 @@ class BenchmarkActivity : ComponentActivity() {
     private var liveStartMs = 0L
     private var lastPreviewMs = 0L
 
-    private fun publishLive(runner: BenchmarkRunner, mode: HistoryMode) {
+    private fun publishLive(runner: BenchmarkRunner, label: String, drawingPhase: Boolean = true) {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastPreviewMs < 160) return
         lastPreviewMs = now
         val c = runner.liveCollector
-        val frame = if (previewEnabled) runner.snapshot(420) else null
+        val frame = if (previewEnabled && drawingPhase) runner.snapshot(420) else null
         val mb = 1024.0 * 1024.0
         val tiles = if (c == null) emptyList() else listOf(
-            "Chế độ" to mode.name.lowercase().replace('_', ' '),
+            "Phương án" to label,
             "Thời gian" to String.format(Locale.US, "%.1f s", (now - liveStartMs) / 1000.0),
             "Trễ TB" to String.format(Locale.US, "%.1f ms", c.averageLatencyMs()),
             "Hot" to String.format(Locale.US, "%.1f MB", c.peakHotBytes / mb),
@@ -162,9 +169,100 @@ class BenchmarkActivity : ComponentActivity() {
 
     private var reportMeta by mutableStateOf<List<String>>(emptyList())
 
+    // experiment suites: the same bản vẽ run with one setting changed, compared side by side
+    private var suiteMode by mutableStateOf(true)
+    private var selectedSuiteId by mutableStateOf(ExperimentSuites.all.first().id)
+    private var suiteResults by mutableStateOf<List<VariantResult>>(emptyList())
+    private var suiteFinished by mutableStateOf(false)
+    private var suiteResultsFor by mutableStateOf<String?>(null)
+    // last finished run of every suite in this session: the improvement map reads its RAM/CPU badges from here
+    private val lastSuiteResults = androidx.compose.runtime.mutableStateMapOf<String, List<VariantResult>>()
+
+    /**
+     * Runs the selected suite [repeats] times. With several runs the first one only warms the device up (JIT, disk
+     * cache) and is thrown away, the variants run in the opposite order every other time so that neither always
+     * benefits from the cache of the one before it, and what is shown is the median with the lowest and highest run.
+     */
+    private fun startSuite(repeats: Int = 1) {
+        val suite = ExperimentSuites.byId(selectedSuiteId) ?: return
+        val seed = seedInput.toLongOrNull() ?: 42L
+        val config = BenchmarkConfig(scenario = suite.scenario, strokeType = suite.strokeType, stepCount = suite.steps, seed = seed, undoThinkMs = suite.thinkMs)
+        isRunning = true
+        suiteFinished = false
+        suiteResults = emptyList()
+        suiteResultsFor = suite.id
+        comparisonEntries = emptyList()
+        mathReport = null
+        reportText = ""
+        previewBitmap = null
+        lifecycleScope.launch {
+            val measured = mutableListOf<List<VariantResult>>()
+            val totalRuns = if (repeats > 1) repeats + 1 else 1
+            for (run in 0 until totalRuns) {
+                val warmUp = repeats > 1 && run == 0
+                val order = if (run % 2 == 1) suite.variants.indices.reversed().toList() else suite.variants.indices.toList()
+                val slot = arrayOfNulls<VariantResult>(suite.variants.size)
+                for (index in order) {
+                    val variant = suite.variants[index]
+                    val tag = if (totalRuns > 1) (if (warmUp) "Làm nóng" else "Lần $run/$repeats") + " · " else ""
+                    progressCurrent = 0
+                    progressTotal = suite.steps * 2
+                    progressLabel = "$tag${variant.label}"
+                    val manager: HistoryManager = when (variant.mode) {
+                        HistoryMode.NAIVE -> NaiveHistory()
+                        HistoryMode.DIRTY_RECT -> DirtyRectHistory()
+                        HistoryMode.TIERED -> TieredHistory.create(this@BenchmarkActivity, variant.tune(TieredHistory.defaultConfig()))
+                            .also { it.prefetcher.isEnabled = variant.prefetch }
+                    }
+                    val runner = BenchmarkRunner(manager, tilingEnabled = variant.tiling)
+                    liveStartMs = android.os.SystemClock.elapsedRealtime()
+                    val collector = runner.runBenchmark(
+                        config = config,
+                        scope = this,
+                        onProgress = { cur, tot ->
+                            publishLive(runner, variant.label, cur <= suite.steps)
+                            lifecycleScope.launch(Dispatchers.Main) {
+                                progressCurrent = cur
+                                progressTotal = tot.coerceAtLeast(1)
+                                progressLabel = "$tag${variant.label} · bước $cur/$tot"
+                            }
+                        }
+                    )
+                    val finished = VariantResult.from(variant, collector, suite.steps)
+                    slot[index] = finished
+                    // machine-readable copy of every number on screen, so runs can be repeated and summarised
+                    android.util.Log.i(
+                        "ChronosSuite",
+                        "suite=${suite.id}|run=${if (warmUp) "warmup" else run}|variant=${variant.label}|status=${finished.status}|" +
+                            suite.metrics.joinToString("|") { m -> "${m.label}=${m.value(finished)}" }
+                    )
+                    if (totalRuns == 1) suiteResults = slot.filterNotNull()
+                    manager.clear()
+                }
+                if (!warmUp) {
+                    measured.add(slot.map { it!! })
+                    suiteResults = if (repeats > 1) SuiteAggregation.aggregate(suite, measured) else measured.last()
+                }
+            }
+            reportMeta = listOf(
+                "Seed $seed", "${suite.steps} nét", if (repeats > 1) "trung vị $repeats lần" else "1 lần",
+                android.os.Build.MODEL,
+                "Android ${android.os.Build.VERSION.RELEASE} · ${Runtime.getRuntime().availableProcessors()} lõi"
+            )
+            lastSuiteResults[suite.id] = suiteResults
+            suiteFinished = true
+            isRunning = false
+            progressLabel = "Hoàn tất bộ kiểm thử: ${suite.title}"
+        }
+    }
+
     private fun metaOf(config: BenchmarkConfig, steps: Int): List<String> = listOf(
         config.scenario.title,
-        if (config.strokeType == StrokeType.SMALL) "Nét nhỏ" else "Nét lớn",
+        when (config.strokeType) {
+            StrokeType.SMALL -> "Nét nhỏ"
+            StrokeType.DIVERSE -> "Nét đa dạng"
+            else -> "Nét lớn"
+        },
         "Seed ${config.seed}",
         "$steps bước",
         android.os.Build.MODEL,
@@ -224,7 +322,7 @@ class BenchmarkActivity : ComponentActivity() {
                 config = config,
                 scope = this,
                 onProgress = { cur, tot ->
-                    publishLive(runner, selectedMode)
+                    publishLive(runner, selectedMode.name.lowercase().replace('_', ' '), cur <= steps)
                     lifecycleScope.launch(Dispatchers.Main) {
                         progressCurrent = cur
                         progressTotal = tot.coerceAtLeast(1)
@@ -269,7 +367,7 @@ class BenchmarkActivity : ComponentActivity() {
                     config = config,
                     scope = this,
                     onProgress = { cur, tot ->
-                        publishLive(runner, mode)
+                        publishLive(runner, mode.name.lowercase().replace('_', ' '), cur <= steps)
                         lifecycleScope.launch(Dispatchers.Main) {
                             progressCurrent = cur
                             progressTotal = tot.coerceAtLeast(1)
@@ -647,6 +745,33 @@ class BenchmarkActivity : ComponentActivity() {
                     .verticalScroll(scroll)
                     .padding(bottom = 16.dp)
             ) {
+                Box(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    Segmented(
+                        items = listOf(true to "Bộ kiểm thử", false to "Kịch bản E1–E6"),
+                        selected = suiteMode,
+                        onSelect = { if (!isRunning) suiteMode = it }
+                    )
+                }
+                if (suiteMode) {
+                    LabSection("Cải tiến của nhóm ở các cổng giữa các tầng")
+                    ImprovementMap(
+                        results = lastSuiteResults,
+                        isRunning = isRunning,
+                        onVerify = { id ->
+                            if (!isRunning) {
+                                selectedSuiteId = id
+                                startSuite(repeats = 5)          // the badges are medians, not one lucky or unlucky run
+                            }
+                        }
+                    )
+                    LabSection("Chọn bộ kiểm thử")
+                    ExperimentSuites.all.forEach { suite ->
+                        SuiteCard(suite, selected = suite.id == selectedSuiteId) {
+                            if (!isRunning) selectedSuiteId = suite.id
+                        }
+                    }
+                }
+                if (!suiteMode) {
                 LabSection("Kịch bản")
                 ScenarioType.values().forEach { sc ->
                     BenchChoice(sc.title, sc.description, selectedScenario == sc) {
@@ -658,6 +783,7 @@ class BenchmarkActivity : ComponentActivity() {
                             ScenarioType.E4_CONTINUOUS_UNDO_PREFETCH -> "80"
                             ScenarioType.E5_STRESS_AND_RECOVER -> "80"
                             ScenarioType.E6_CORRECTNESS_HASH -> "30"
+                            ScenarioType.E7_UNDO_REDO_BOUNDARY -> "24"
                         }
                     }
                 }
@@ -677,7 +803,8 @@ class BenchmarkActivity : ComponentActivity() {
                 Segmented(
                     items = listOf(
                         StrokeType.SMALL to "Nét nhỏ · 2–10%",
-                        StrokeType.LARGE to "Nét lớn · 40–100%"
+                        StrokeType.LARGE to "Nét lớn · 40–100%",
+                        StrokeType.DIVERSE to "Đa dạng"
                     ),
                     selected = selectedStrokeType,
                     onSelect = { selectedStrokeType = it }
@@ -713,19 +840,34 @@ class BenchmarkActivity : ComponentActivity() {
                     }
                 }
 
+                }
+
                 LabSection("Canvas")
                 CanvasCard()
 
-                if (comparisonEntries.isNotEmpty()) {
+                if (suiteMode) {
+                    val shown = ExperimentSuites.byId(suiteResultsFor ?: selectedSuiteId)
+                    if (shown != null && suiteResults.isNotEmpty()) {
+                        LabSection("Kết quả: ${shown.title}")
+                        if (reportMeta.isNotEmpty() && suiteFinished) {
+                            Row(
+                                Modifier.padding(horizontal = 20.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) { reportMeta.forEach { Chip(it) } }
+                        }
+                        SuiteResultView(shown, suiteResults, suiteFinished)
+                    }
+                }
+                if (!suiteMode && comparisonEntries.isNotEmpty()) {
                     LabSection("Kết quả thực nghiệm")
                     ComparisonVisualCard(entries = comparisonEntries, meta = reportMeta)
                 }
-                mathReport?.let { rep ->
+                if (!suiteMode) mathReport?.let { rep ->
                     Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                         SwamComparisonReportContent(report = rep)
                     }
                 }
-                if (reportText.isNotBlank() && comparisonEntries.isNotEmpty()) {
+                if (!suiteMode && reportText.isNotBlank() && comparisonEntries.isNotEmpty()) {
                     Row(
                         modifier = Modifier
                             .padding(horizontal = 20.dp, vertical = 6.dp)
@@ -781,7 +923,38 @@ class BenchmarkActivity : ComponentActivity() {
                             Text("Xuất CSV", fontSize = 13.sp)
                         }
                     }
-                    Row(
+                    if (suiteMode) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { startSuite(1) },
+                                enabled = !isRunning,
+                                border = BorderStroke(1.dp, CyberCardBorder),
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                modifier = Modifier.weight(0.7f).height(48.dp)
+                            ) {
+                                Text("Chạy 1 lần", color = InkText, fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 1, softWrap = false)
+                            }
+                            Button(
+                                onClick = { startSuite(5) },
+                                enabled = !isRunning,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = Color.White),
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                modifier = Modifier.weight(1.5f).height(48.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (isRunning) "Đang chạy…" else "Chạy 5 lần · trung vị",
+                                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, softWrap = false
+                                )
+                            }
+                        }
+                    } else Row(
                         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -812,6 +985,51 @@ class BenchmarkActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SuiteCard(suite: com.example.canvas.bench.ExperimentSuite, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 20.dp, vertical = 5.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (selected) CyberSurfaceVariant else CyberSurface)
+            .border(1.dp, if (selected) NeonCyan else CyberCardBorder, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(suite.title, color = InkText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(suite.question, color = MutedText, fontSize = 13.sp, lineHeight = 18.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            suite.variants.forEachIndexed { i, v ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(variantColor(i, suite.variants.size)))
+                    Spacer(Modifier.width(5.dp))
+                    Text(v.label, color = InkText, fontSize = 12.sp, maxLines = 1)
+                }
+            }
+        }
+        if (selected) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(CyberCardBorder))
+            Text("Bạn sẽ thấy", color = FaintText, fontSize = 11.sp)
+            Text(suite.expectation, color = MutedText, fontSize = 12.5.sp, lineHeight = 17.sp)
+            suite.variants.forEach { v ->
+                Text("• ${v.label}: ${v.note}", color = FaintText, fontSize = 11.5.sp, lineHeight = 15.sp)
+            }
+            Text(
+                "${suite.scenario.title.substringBefore(" ·")} · ${suite.steps} nét · " + when (suite.strokeType) {
+                    StrokeType.SMALL -> "nét nhỏ"
+                    StrokeType.LARGE -> "nét lớn"
+                    StrokeType.HOLLOW -> "khung rỗng"
+                    StrokeType.MIXED -> "nét nhỏ xen nét lớn"
+                    StrokeType.DIVERSE -> "nét đa dạng: thẳng, chéo, tròn, gạch, tô rộng, tẩy"
+                },
+                color = FaintText, fontSize = 11.5.sp
+            )
         }
     }
 }

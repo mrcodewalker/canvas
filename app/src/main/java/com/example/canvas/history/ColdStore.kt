@@ -96,6 +96,23 @@ class ColdStore(
         return removed
     }
 
+    /** Result of [detach]: whether the patch was in Cold, and the file kept for it (null if shared or missing). */
+    class Detached(val wasCold: Boolean, val keptFile: String?)
+
+    /**
+     * Takes [patch] out of Cold (accounting included) but leaves its file on disk, so that bringing the same
+     * bytes back later needs no write. A file shared with other patches stays theirs and is not kept.
+     */
+    fun detach(patch: Patch): Detached {
+        val path = patch.filePath
+        if (!queue.remove(patch)) return Detached(false, null)
+        val left = unref(path)
+        totalBytes = (totalBytes - patch.sizeBytes).coerceAtLeast(0L)
+        patch.filePath = null
+        val keep = if (path != null && left == 0 && File(path).exists()) path else null
+        return Detached(true, keep)
+    }
+
     fun writeToFile(patch: Patch, compressedBytes: ByteArray): File {
         val file = ColdFileCodec.writeColdFile(historyDir, patch, compressedBytes)
         patch.filePath = file.absolutePath

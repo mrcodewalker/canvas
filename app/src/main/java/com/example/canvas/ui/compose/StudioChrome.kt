@@ -112,6 +112,8 @@ fun StudioTopBar(
     mode: HistoryMode,
     canUndo: Boolean,
     canRedo: Boolean,
+    undoSteps: Int,
+    redoSteps: Int,
     zoomScale: Float,
     trackerOpen: Boolean,
     onUndo: () -> Unit,
@@ -131,8 +133,8 @@ fun StudioTopBar(
             modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = if (narrow) 4.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BarIcon(Icons.AutoMirrored.Rounded.Undo, "Hoàn tác", enabled = canUndo, size = button, onClick = onUndo)
-            BarIcon(Icons.AutoMirrored.Rounded.Redo, "Làm lại", enabled = canRedo, size = button, onClick = onRedo)
+            BarIcon(Icons.AutoMirrored.Rounded.Undo, "Hoàn tác ($undoSteps bước)", enabled = canUndo, size = button, badge = undoSteps, onClick = onUndo)
+            BarIcon(Icons.AutoMirrored.Rounded.Redo, "Làm lại ($redoSteps bước)", enabled = canRedo, size = button, badge = redoSteps, onClick = onRedo)
             Spacer(Modifier.weight(1f))
             ModeSwitch(mode = mode, compact = narrow, onSelect = onSelectMode)
             Spacer(Modifier.weight(1f))
@@ -171,6 +173,7 @@ private fun BarIcon(
     size: Dp = 44.dp,
     tint: Color? = null,
     background: Color = Color.Transparent,
+    badge: Int? = null,
     onClick: () -> Unit
 ) {
     val target = tint ?: if (enabled) InkText else FaintText.copy(alpha = 0.55f)
@@ -184,7 +187,20 @@ private fun BarIcon(
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = color, modifier = Modifier.size(22.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = description, tint = color, modifier = Modifier.size(if (badge != null) 20.dp else 22.dp))
+            if (badge != null) {
+                // the step count sits under the icon, plain white, no background
+                Text(
+                    text = if (badge > 999) "999+" else badge.toString(),
+                    color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f),
+                    fontSize = 10.sp,
+                    lineHeight = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 

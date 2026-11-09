@@ -1,6 +1,7 @@
 package com.example.canvas.history
 
 import android.content.ComponentCallbacks2
+import com.example.canvas.core.CodecSelector
 import com.example.canvas.core.Patch
 import com.example.canvas.core.PatchCodec
 import com.example.canvas.core.PatchState
@@ -41,13 +42,33 @@ data class TierConfig(
     val coldMaxSteps: Int = 1000,
     val compressionLevel: Int = 1,
     val adaptiveCompEnabled: Boolean = true,
-    val coldCompressionLevel: Int = 9,
+    val coldCompressionLevel: Int = 6,
     val adaptiveCompBlockSize: Int = 4,
     val infiniteUndo: Boolean = false,
     val evictionStrategy: SwamEvictionStrategy = SwamEvictionStrategy.FIFO,
     val coldFullPolicy: ColdFullPolicy = ColdFullPolicy.SMART,
     /** Derive Hot/Warm budgets from the user's own habits instead of the fixed values above. */
-    val autoBudgets: Boolean = true
+    val autoBudgets: Boolean = true,
+    /**
+     * Tier boundary guard: a patch that comes back by undo/redo keeps its compressed form instead of being
+     * compressed again, so data sitting on the Warm/Cold boundary does not cost CPU every time it crosses.
+     */
+    val reuseEncodings: Boolean = true,
+    /**
+     * Moving a step down a tier (compressing it, writing it to disk) happens in the background, so that drawing
+     * never waits for it. Only when Hot has run a whole budget over does the next stroke have to wait.
+     */
+    val asyncDemotion: Boolean = true,
+    /**
+     * Which step leaves Warm for Cold is chosen by what keeping it is worth per byte of RAM (see
+     * [TierPolicy.pickWarmVictim]) instead of by age.
+     */
+    val valueAwareVictims: Boolean = false,
+    /**
+     * Hot -> Warm picks how each patch is stored from what is in it (single colour, runs of equal pixels, smooth
+     * gradients, or plain Deflate), learned per kind of patch (see [CodecSelector]) instead of always Deflate.
+     */
+    val contentAwareCodec: Boolean = true
 )
 
 /**
@@ -78,7 +99,9 @@ class TierPolicy(
     /** (hot, warm) budgets computed from the user's habits, or null while there is not enough data. */
     private val autoBudgets: () -> Pair<Long, Long>? = { null },
     /** Receives every tier transition (the tracker panel); null = nobody is watching. */
-    private val events: TierEventLog? = null
+    private val events: TierEventLog? = null,
+    /** Measured fixed cost of one more file (seek, open, headers) in bytes-equivalent; 0 while unknown. */
+    private val patchOverheadBytes: () -> Long = { 0L }
 ) {
     private var blockedNotified = false
 
@@ -87,6 +110,9 @@ class TierPolicy(
 
     /** Chooses the Warm compression level by measuring it on this device with this user's pixels. */
     val warmLevels = WarmLevelCalibrator()
+
+    /** Chooses the storage format (solid / run-length / delta / Deflate) of each patch entering Warm. */
+    val codecs = CodecSelector()
 
     private fun baselineOf(patch: Patch): Int = if (patch.warmLevel > 0) patch.warmLevel else config.compressionLevel
 
@@ -97,10 +123,27 @@ class TierPolicy(
     fun warmBudget(): Long =
         (if (config.autoBudgets) autoBudgets()?.second else null) ?: config.warmBudgetBytes
 
+    /**
+     * Bumped when the history is cleared. A move that was still in flight (its compression or file write running)
+     * sees the change when it resumes and throws its result away instead of putting a stale step back.
+     */
+    @Volatile
+    var epoch: Int = 0
+
     var oomCleanerReclaimedBytes: Long = 0L
         private set
 
     var deduplicatedPatches: Int = 0
+        private set
+
+    /** Hot -> Warm moves that needed no compression because the patch brought its encoding back with it. */
+    var reusedEncodings: Int = 0
+        private set
+    var reusedRawBytes: Long = 0L
+        private set
+
+    /** Warm -> Cold moves that found the patch's file still on disk and wrote nothing. */
+    var reusedColdFiles: Int = 0
         private set
 
     var adaptiveCompSavedBytes: Long = 0L
@@ -117,10 +160,14 @@ class TierPolicy(
     fun resetSwamMetrics() {
         oomCleanerReclaimedBytes = 0L
         deduplicatedPatches = 0
+        reusedEncodings = 0
+        reusedRawBytes = 0L
+        reusedColdFiles = 0
         adaptiveCompSavedBytes = 0L
         coldPressureEvents = 0
         coldRescuedBytes = 0L
         evictedStrokes = 0
+        codecs.reset()
     }
 
     /**
@@ -173,8 +220,8 @@ class TierPolicy(
         val maxWarmAttempts = warmStore.count
         var warmAttempts = 0
         while (warmStore.totalBytes > effectiveWarmBudget && warmStore.count > 0 && warmAttempts < maxWarmAttempts) {
-            val oldestWarm = warmStore.peekOldest() ?: break
-            if (!demoteWarmToCold(oldestWarm)) break // Cold cannot take more: keep it in Warm
+            val victim = pickWarmVictim() ?: break
+            if (!demoteWarmToCold(victim)) break // Cold cannot take more: keep it in Warm
             warmAttempts++
         }
 
@@ -190,6 +237,49 @@ class TierPolicy(
                 if (coldStore.count == before && coldStore.totalBytes > config.coldMaxBytes) break
             }
         }
+    }
+
+    /**
+     * Which Warm step goes down to Cold. The team's own rule, not an age rule:
+     *
+     * Keeping step p in Warm instead of Cold is worth `reach(d)` (the chance that undo gets down to its depth d,
+     * learned from this user's habits) times the time an undo saves by not reading it from disk. A read costs a
+     * fixed part plus a part per byte, so it is proportional to `S + O` (S = its size, O = the measured fixed cost
+     * expressed in bytes). It uses `S` bytes of RAM. Sending it down also costs one write of the same shape.
+     * What is lost per byte of RAM freed is therefore
+     *
+     *     (reach(d) * readRate + writeRate) * (S + O) / S
+     *
+     * and the step with the smallest value goes. With a flat cost per byte this is the oldest step; the fixed part
+     * is what changes the order: many small steps are expensive to bring back one by one for the little RAM they
+     * hold, so they stay in Warm while big, deep steps (cheap per byte, unlikely to be undone) go to disk.
+     * Ties keep the older step first.
+     */
+    fun pickWarmVictim(): Patch? {
+        if (!config.valueAwareVictims) return warmStore.peekOldest()
+        val all = warmStore.getAll()
+        if (all.isEmpty()) return null
+        if (all.size == 1) return all[0]
+        val depths = undoDepths()
+        val reach = reachFunction()
+        val overhead = patchOverheadBytes().coerceAtLeast(0L).toDouble()
+        val readRate = costModel?.readNsPerByte()?.takeIf { it > 0.0 }
+        val writeRate = costModel?.writeNsPerByte()?.takeIf { it > 0.0 }
+        // until both were measured, treat a read and a write as equally expensive
+        val rd = readRate ?: writeRate ?: 1.0
+        val wr = writeRate ?: readRate ?: 1.0
+        var best = all[0]
+        var bestScore = Double.MAX_VALUE
+        for (p in all) {
+            val depth = depths[p.id] ?: Int.MAX_VALUE / 2     // not in the undo history: nothing will ask for it
+            val size = p.sizeBytes.coerceAtLeast(1L).toDouble()
+            val score = (reach(depth) * rd + wr) * (size + overhead) / size
+            if (score < bestScore - 1e-12) {
+                bestScore = score
+                best = p
+            }
+        }
+        return best
     }
 
     // ------------------------------------------------------------------------------------------
@@ -269,6 +359,10 @@ class TierPolicy(
             try {
                 val t0 = System.nanoTime()
                 val payload = coldStore.readPayload(patch)
+                if (!PatchCodec.isDeflate(payload.compressedBytes)) {
+                    patch.deepCompressed = true      // nothing deeper to try; do not pick it again
+                    return@withContext
+                }
                 val raw = PatchCodec.decompress(payload.compressedBytes, payload.rawLength, payload.crc32)
                 val cls = tuner.classOf(payload.rawLength, payload.compressedBytes.size)
                 val level = tuner.mostCompressingLevel(cls, baselineOf(patch), config.coldCompressionLevel)
@@ -409,6 +503,7 @@ class TierPolicy(
      * - Bitmap remains accessible until compression completes.
      */
     suspend fun demoteHotToWarm(patch: Patch) {
+        val epochAtStart = epoch
         val bmp = patch.bitmap
         val hotBytes = patch.sizeBytes
         patch.state = PatchState.COMPRESSING
@@ -416,7 +511,21 @@ class TierPolicy(
         // Remove from HotStore using the existing Hot sizeBytes
         hotStore.remove(patch)
 
-        if (bmp != null) {
+        val enc = patch.reuse
+        patch.reuse = null
+        if (enc != null && config.reuseEncodings) {
+            // same pixels as before the undo: keep the bytes that were already made for them
+            patch.warmLevel = enc.level
+            patch.compressedBytes = enc.bytes
+            patch.rawLength = enc.rawLength
+            patch.crc32 = enc.crc32
+            patch.sizeBytes = enc.bytes.size.toLong()
+            patch.deepCompressed = enc.deep
+            patch.coldTrips = enc.coldTrips
+            patch.keptFile = enc.filePath
+            reusedEncodings++
+            reusedRawBytes += enc.rawLength.toLong()
+        } else if (bmp != null) {
             var usedLevel = config.compressionLevel
             val t0 = System.nanoTime()
             val compressed = withContext(Dispatchers.Default) {
@@ -429,7 +538,12 @@ class TierPolicy(
                     all.getValue(usedLevel).first
                 } else {
                     usedLevel = if (config.adaptiveCompEnabled) warmLevels.best() else config.compressionLevel
-                    PatchCodec.compressBitmap(bmp, usedLevel)
+                    if (config.contentAwareCodec) {
+                        val io = (costModel?.writeNsPerByte() ?: 0.0) + (costModel?.readNsPerByte() ?: 0.0)
+                        PatchCodec.compressBitmapAdaptive(bmp, usedLevel, codecs, if (io > 0.0) io else null)
+                    } else {
+                        PatchCodec.compressBitmap(bmp, usedLevel)
+                    }
                 }
             }
             costModel?.recordCompress(compressed.rawLength.toLong(), System.nanoTime() - t0)
@@ -443,6 +557,10 @@ class TierPolicy(
             patch.sizeBytes = patch.compressedBytes!!.size.toLong()
         }
 
+        if (epoch != epochAtStart) {            // cleared while this was being compressed
+            patch.recycle()
+            return
+        }
         patch.state = PatchState.WARM
         warmStore.add(patch)
         events?.emit(
@@ -463,6 +581,7 @@ class TierPolicy(
      * - Compressed bytes remain in RAM until atomic file write completes.
      */
     suspend fun demoteWarmToCold(patch: Patch): Boolean {
+        val epochAtStart = epoch
         val warmBytes = patch.compressedBytes ?: ByteArray(0)
         patch.state = PatchState.WRITING
 
@@ -475,7 +594,12 @@ class TierPolicy(
         val baseline = baselineOf(patch)
         var usedLevel = baseline
         var coldPayloadBytes = warmBytes
-        if (config.adaptiveCompEnabled && warmBytes.isNotEmpty() && patch.rawLength > 0) {
+        val kept = patch.keptFile?.takeIf { config.reuseEncodings && java.io.File(it).exists() }
+        patch.keptFile = null
+        // solid / run-length / delta patches are already in the form that suits them: deeper Deflate cannot beat it
+        if (kept == null && config.adaptiveCompEnabled && patch.coldTrips == 0 && warmBytes.isNotEmpty() && patch.rawLength > 0 &&
+            PatchCodec.isDeflate(warmBytes)
+        ) {
             val cls = tuner.classOf(patch.rawLength, warmBytes.size)
             val io = (costModel?.writeNsPerByte() ?: 0.0) + (costModel?.readNsPerByte() ?: 0.0)
             val level = tuner.choose(
@@ -530,7 +654,10 @@ class TierPolicy(
             return false
         }
 
-        val file = try {
+        val file = if (kept != null) {
+            reusedColdFiles++
+            java.io.File(kept)                      // same bytes are already on disk: nothing to write
+        } else try {
             writeCold(patch, coldPayloadBytes)
         } catch (_: Exception) {
             // The disk refused anyway (quota, another app): free what we can once and retry once
@@ -544,8 +671,13 @@ class TierPolicy(
         }
 
         patch.filePath = file.absolutePath
+        if (epoch != epochAtStart) {            // cleared while this was being written
+            try { file.delete() } catch (_: Throwable) {}
+            return false
+        }
         patch.sizeBytes = file.length()
         patch.deepCompressed = deep
+        patch.coldTrips++
         patch.state = PatchState.COLD
         blockedNotified = false
 

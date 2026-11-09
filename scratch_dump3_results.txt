@@ -1,0 +1,209 @@
+Thực nghiệm
+Đo heap, PSS, các tầng Hot, Warm, Cold và độ trễ
+Bộ kiểm thử
+Kịch bản E1–E6
+Cải tiến của nhóm ở các cổng giữa các tầng
+Cải tiến nằm ở các cổng giữa các tầng
+Các tầng Hot, Warm, Cold chỉ là kho chứa. Phần nhóm làm khác nằm ở lúc dữ liệu đi qua từng cổng.
+④
+Ngân sách: chia Hot/Warm theo thói quen vẽ (toàn hệ thống)
+Hot
+bitmap&#10;trong RAM
+① Nén&#10;thích nghi
+③ Giải nén&#10;sẵn
+Warm
+nén&#10;trong RAM
+② Nén sâu&#10;chọn lọc
+③ Đọc đĩa&#10;sớm
+Cold
+file&#10;trên đĩa
+Vẽ: nét đi xuống →
+← Undo: nét đi lên
+③
+Nạp trước thích nghi (Cold → Warm → Hot)
+⓪
+Ô nét (trước khi vào Hot)
+Lưu ô nét chạm tới, không lưu cả hộp bao
+Cách thường
+Lưu hình chữ nhật bao quanh nét, nét là khung rỗng thì vẫn lưu cả hình vuông.
+Của nhóm
+Chia nét thành các ô; cỡ ô chọn theo chi phí đo được (byte + phí mỗi patch), chỉ lưu ô nét đi qua.
+Hộp bao chạm trần RAM và dừng sớm, nên số của nó chỉ tính đến lúc dừng.
+RAM · chưa đo
+Kiểm chứng
+Hoàn tất bộ kiểm thử: Chọn nét xuống Cold: theo tuổi hay theo giá trị giữ lại?
+Xuất CSV
+Chạy 1 lần
+Chạy 5 lần · trung vị
+①
+Hot → Warm: mức nén tự chọn theo đo đạc
+Một mức nén cố định cho mọi patch (nén mạnh thì tốn CPU, nén nhẹ thì tốn RAM).
+Nén cùng điểm ảnh ở vài mức, chỉ giữ mức khi tỷ lệ nén tăng không ít hơn thời gian tăng.
+CPU −36%
+RAM · chưa phân biệt
+Hot → Warm: dạng lưu chọn theo nội dung patch
+Mọi patch, kể cả patch chỉ có một màu, đều đi qua Deflate: tốn CPU nén, CPU giải nén và vẫn giữ vài chục byte.
+Quét một lượt để biết patch một màu (5 byte, không nén), nhiều mảng phẳng (chạy-lặp), hay mịn (lọc hiệu rồi Deflate). Mỗi loại patch tự đo và học dạng rẻ nhất trên máy này; định kỳ thử lại.
+Việc thử các dạng ở mỗi loại patch mới cũng tốn CPU; số nén tổng đã gồm khoản đó. Nếu nét vẽ ít mảng phẳng thì lợi ích nhỏ.
+CPU nén · chưa phân biệt
+CPU giải nén · chưa phân biệt
+Hot → Warm → Cold: chuyển tầng chạy ngầm
+Nén và ghi đĩa diễn ra ngay trong lúc lưu nét, nên nét làm tràn Hot phải chờ cả hai việc xong.
+Nét vào Hot là xong; nén và ghi đĩa làm song song với việc vẽ, chỉ chờ khi Hot đã vượt quá một ngân sách.
+Nén và ghi đĩa vẫn tốn CPU như cũ; cải tiến là bỏ chúng khỏi đường đi của nét vẽ.
+Độ trễ p95 · chưa đo
+Nét lâu nhất · chưa đo
+②
+Warm → Cold: nén sâu có chọn lọc, giữ lại bản nén và file
+Mọi patch xuống Cold đều bị nén mức cao nhất và ghi file mới, kể cả patch vừa từ Cold lên.
+Mỗi patch tự quyết nén sâu hay không theo lợi ích ròng; patch quay về mang theo bản nén và file cũ nên không nén, không ghi lại.
+CPU · chưa phân biệt
+Đĩa · chưa phân biệt
+Warm → Cold: chọn nét xuống đĩa theo giá trị giữ lại (thử nghiệm)
+Nét cũ nhất xuống đĩa trước, bất kể to hay nhỏ.
+Giá trị giữ lại mỗi byte RAM = (xác suất còn Undo tới đó × tốc độ đọc + tốc độ ghi) × (cỡ + phí cố định mỗi file) / cỡ; nét giá trị thấp nhất xuống trước.
+Thử nghiệm, mặc định đang tắt: trên máy ảo chưa thấy lợi ích rõ vì phí cố định mỗi file nhỏ so với cỡ nét. Cần đo trên máy thật trước khi bật.
+Đĩa đọc · chưa phân biệt
+Độ trễ TB · chưa phân biệt
+Cold → Warm → Hot: nạp trước thích nghi
+Nạp trước một số nét cố định (K = 5), không biết nét nặng hay nhẹ, máy nhanh hay chậm.
+Độ sâu tính từ nhịp Undo của người dùng, tốc độ đọc/giải nén đo được và RAM còn trống; đọc sớm bước kế tiếp.
+Một lần chạy trên máy ảo: chênh vài chục phần trăm có thể là nhiễu. Chạy lại để thấy độ dao động.
+Độ trễ p95 · chưa phân biệt
+Undo chậm · chưa phân biệt
+Cả hệ thống: chia ngân sách Hot/Warm theo thói quen vẽ
+Ngân sách Hot và Warm là hai số cố định cho mọi người dùng.
+Hot = nét nặng nhất hoặc số lần Undo thường làm × cỡ nét; Warm nhận phần còn lại vì chứa cùng số bước ở cỡ nhỏ hơn nhiều.
+So với Dirty rect ở thời điểm nó dừng vì chạm trần RAM; hai chế độ vẽ số nét khác nhau.
+Chọn bộ kiểm thử
+Khung rỗng: lưu ô hay lưu cả hộp?
+Nét vẽ là một khung chữ nhật rỗng thì ứng dụng có phải lưu cả hình vuông bao quanh không?
+Cả canvas
+Hộp bao
+Ô thích nghi
+Nạp trước: hoàn tác có nhanh hơn không?
+Khi lịch sử nằm trên đĩa, nạp và giải nén trước bước sắp hoàn tác có làm Undo nhanh hơn?
+Tắt nạp trước
+Nạp trước thông minh
+Nhịp Undo: độ sâu nạp trước có tự đổi không?
+Nạp trước không dùng K cố định. Khi người dùng Undo nhanh hơn, độ sâu nạp trước có tự tăng để kịp không?
+Undo chậm (400 ms/lần)
+Undo vừa (120 ms/lần)
+Undo nhanh (10 ms/lần)
+Mức nén: cố định hay chọn theo dữ liệu?
+Nén mức thấp, nén mức cao hay để ứng dụng đo và tự chọn: cái nào đáng CPU nhất?
+Mức 1 cố định
+Mức 9 cố định
+Thích nghi
+Dạng lưu theo nội dung: có cần Deflate cho mọi patch?
+Patch đồng màu hay toàn mảng phẳng có đáng đi qua Deflate không, hay lưu theo cách khác rẻ hơn cả RAM lẫn CPU?
+Deflate thuần
+Theo nội dung
+Chuyển tầng chạy ngầm: nét vẽ có phải chờ không?
+Khi Hot đầy, việc nén và ghi đĩa diễn ra ngay trong lúc lưu nét hay chạy ngầm bên cạnh?
+Chờ nén và ghi đĩa
+Chạy ngầm
+Chọn nét xuống Cold: theo tuổi hay theo giá trị giữ lại?
+Warm đầy thì nét nào nên xuống đĩa trước: nét cũ nhất, hay nét mà giữ lại trong RAM đáng giá ít nhất?
+Theo tuổi
+Theo giá trị giữ lại
+Bạn sẽ thấy
+Theo tuổi: nét cũ nhất xuống đĩa dù nhỏ, nên nhiều nét nhỏ phải đọc đĩa từng cái khi Undo. Theo giá trị: nét lớn và sâu xuống đĩa trước, nhiều nét nhỏ ở lại Warm nên ít lần đọc đĩa hơn.
+• Theo tuổi: Nét cũ nhất xuống Cold trước
+• Theo giá trị giữ lại: Nét đáng giữ ít nhất mỗi byte RAM xuống trước
+E2 · 120 nét · nét đa dạng: thẳng, chéo, tròn, gạch, tô rộng, tẩy
+Ranh giới tầng: có nén đi nén lại không?
+Dữ liệu nằm sát ranh giới Warm/Cold, bị hoàn tác rồi làm lại liên tục: ứng dụng có phải nén lại từ đầu mỗi vòng?
+Nén lại mỗi vòng
+Giữ bản nén
+Ba chế độ lịch sử trên cùng một bản vẽ
+Naive, Dirty rect và Tiered khác nhau thế nào khi vẽ rồi hoàn tác hết?
+Naive
+Dirty rect
+Tiered
+Canvas
+Canvas sau khi chạy
+2048 × 2048 px
+Phương án
+Thời gian
+7.4 s
+Trễ TB
+29.4 ms
+1.9 MB
+0.8 MB
+2.9 MB
+Hiện canvas khi chạy. Chụp khung hình tốn thêm một chút CPU, hãy tắt khi đo thuần.
+Kết quả: Chọn nét xuống Cold: theo tuổi hay theo giá trị giữ lại?
+Seed 42
+120 nét
+trung vị 5 lần
+sdk_gphone16k_x86_64
+Android 17 · 4 lõi
+Kết luận từ số đo
+Theo giá trị giữ lại không tốt hơn Theo tuổi trong bài này: 1 chỉ số kém đi.
+Chưa phân biệt được (các lần chạy chồng nhau)
+≈ Đọc đĩa tổng: 2033 → 1899 ms (−7%)
+≈ Hoàn tác p95: 49.0 → 58.0 ms (+18%)
+≈ Lần Undo chậm hơn 50 ms: 6.00 → 9.00 lần (+50%)
+≈ Tổng thời gian chạy: 6.54 → 7.41 s (+13%)
+Đánh đổi
+▼ Ghi đĩa tổng: 2069 → 2427 ms (+17%)
+Trung vị của 5 lần chạy (bỏ lần làm nóng), cùng seed, một thiết bị. Chênh dưới 5%, hoặc khi các lần chạy chồng nhau, không được tính là khác biệt.
+Đọc đĩa tổng
+ms · thấp hơn là tốt
+1667–2657
+2033
+1659–2638
+1899
+−7%
+Hoàn tác trung bình
+18.1–24.3
+18.9
+18.2–23.8
+19.0
+≈
+Hoàn tác p95
+44.0–67.0
+49.0
+51.0–61.0
+58.0
++18%
+Lần Undo chậm hơn 50 ms
+lần · thấp hơn là tốt
+4.00–13.0
+6.00
+7.00–13.0
+9.00
++50%
+Ghi đĩa tổng
+1987–2301
+2069
+2412–2514
+2427
++17%
+Tổng thời gian chạy
+s · thấp hơn là tốt
+6.33–7.42
+6.54
+7.24–7.99
+7.41
++13%
+Độ trễ từng lần hoàn tác
+đỉnh 87 ms
+lần hoàn tác đầu
+lần cuối
+Chi phí xử lý lịch sử
+Tổng thời gian CPU và đĩa mỗi công đoạn tiêu tốn (ms)
+8656 ms
+9232 ms
+Nén
+Giải nén
+Đọc đĩa
+Ghi đĩa
+Vẽ patch
+Lịch sử nằm ở tầng nào
+5.7 MB
+Hot 1.8 · Warm 0.9 · Cold 3.0 MB
+5.6 MB
+Hot 1.7 · Warm 0.8 · Cold 3.0 MB
+Mỗi phương án chạy lần lượt trên cùng canvas, cùng chuỗi nét từ cùng seed; chỉ khác đúng một thiết lập.

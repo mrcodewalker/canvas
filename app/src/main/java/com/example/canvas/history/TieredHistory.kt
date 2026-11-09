@@ -9,6 +9,7 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import com.example.canvas.core.Patch
 import com.example.canvas.core.PatchCodec
+import com.example.canvas.core.PatchFormat
 import com.example.canvas.core.PatchState
 import com.example.canvas.core.StrokeOp
 import kotlinx.coroutines.CoroutineDispatcher
@@ -33,16 +34,19 @@ class TieredHistory(
 ) : HistoryManager {
 
     companion object {
+        /** The configuration the app starts with; experiments derive their variants from it with `copy(...)`. */
+        fun defaultConfig() = TierConfig(
+            hotBudgetBytes = 4L * 1024 * 1024, // 4 MiB Hot RAM (~4-8 recent patches)
+            warmBudgetBytes = 256L * 1024,     // 256 KiB Warm compressed RAM (~8-15 compressed patches)
+            infiniteUndo = true,
+            coldMaxSteps = Int.MAX_VALUE,
+            coldMaxBytes = 4L * 1024 * 1024 * 1024, // 4 GiB disk ceiling for Infinite Undo
+            evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE
+        )
+
         fun create(
             context: Context,
-            tierConfig: TierConfig = TierConfig(
-                hotBudgetBytes = 4L * 1024 * 1024, // 4 MiB Hot RAM (~4-8 recent patches)
-                warmBudgetBytes = 256L * 1024,     // 256 KiB Warm compressed RAM (~8-15 compressed patches)
-                infiniteUndo = true,
-                coldMaxSteps = Int.MAX_VALUE,
-                coldMaxBytes = 4L * 1024 * 1024 * 1024, // 4 GiB disk ceiling for Infinite Undo
-                evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE
-            )
+            tierConfig: TierConfig = defaultConfig()
         ): TieredHistory {
             val dir = File(context.filesDir, "history")
             return TieredHistory(historyDir = dir, tierConfig = tierConfig)
@@ -84,7 +88,8 @@ class TieredHistory(
         reachFunction = { prefetcher.model.reachFunction() },
         onColdBlocked = { onColdBlocked?.invoke() },
         autoBudgets = { computeAutoBudgets() },
-        events = events
+        events = events,
+        patchOverheadBytes = { prefetcher.model.patchOverheadBytes() ?: 0L }
     )
 
     /**
@@ -144,6 +149,7 @@ class TieredHistory(
     init {
         events.afterEmit = { requestTierMap() }
         com.example.canvas.core.BufferPool.limit = { tierPolicy.hotBudget() / 2 }
+        prefetcher.keepColdFiles = tierConfig.reuseEncodings
     }
 
     /** Asks for a fresh tier map; computed on the history thread, at most one pending at a time. */
@@ -223,8 +229,46 @@ class TieredHistory(
         events.emit(TierEventKind.NEW, before.strokeNo, 0L, before.sizeBytes, "vào Hot")
         prefetcher.onCommit(newStroke, before.sizeBytes)
 
-        // Asynchronously check and enforce tier budgets
-        tierPolicy.enforceBudgets()
+        settleTiers()
+    }
+
+    // ---- moving steps down the tiers without making the user wait ---------------------------------------------------
+    // Only touched on the history thread (every coroutine of [scope] runs there), so plain fields are enough.
+    private var settling = false
+    private var settleAgain = false
+
+    override suspend fun settle() {
+        withContext(historyDispatcher) {
+            while (settling) kotlinx.coroutines.delay(2L)
+        }
+    }
+
+    /**
+     * Moves what no longer fits down a tier. Normally this runs in the background: a stroke is committed as soon as
+     * it is in Hot, and the compression or disk write that makes room happens next to the drawing, not inside it.
+     * It waits only when Hot is already a whole budget over, which keeps RAM bounded when strokes arrive faster
+     * than they can be compressed.
+     */
+    private suspend fun settleTiers() {
+        if (!tierPolicy.config.asyncDemotion || hotStore.totalBytes > 2 * tierPolicy.hotBudget()) {
+            tierPolicy.enforceBudgets()
+            return
+        }
+        if (settling) {
+            settleAgain = true
+            return
+        }
+        settling = true
+        scope.launch {
+            try {
+                do {
+                    settleAgain = false
+                    tierPolicy.enforceBudgets()
+                } while (settleAgain)
+            } finally {
+                settling = false
+            }
+        }
     }
 
     /** Pops the top patch plus every other patch of the same stroke group (dirty tiles). */
@@ -311,12 +355,26 @@ class TieredHistory(
             )
 
             // 2. Resolve bitmap representation of patchToRestore
+            lastPayload = null
             val bitmapToApply: Bitmap = resolveBitmapForPatch(patchToRestore, patchW, patchH)
 
-            // Remove from whichever store it belonged to
+            // Redo will capture these very pixels again: remember how they were compressed so that it need not
+            // compress them (and the tier moves after it) a second time
+            var enc = encodingOf(patchToRestore, patchW, patchH)
+
+            // Remove from whichever store it belonged to. A Cold file is left on disk when its bytes are kept for redo.
             hotStore.remove(patchToRestore)
             warmStore.remove(patchToRestore)
+            if (enc != null && patchToRestore.state == PatchState.COLD) {
+                val kept = coldStore.detach(patchToRestore).keptFile
+                if (kept != null) enc = Patch.Encoding(enc.bytes, enc.rawLength, enc.crc32, enc.level, enc.deep, enc.coldTrips, kept)
+            }
             coldStore.remove(patchToRestore)
+            patchToRestore.keptFile?.let { f ->
+                try { java.io.File(f).delete() } catch (_: Throwable) {}   // nothing will reuse it
+                patchToRestore.keptFile = null
+            }
+            redoStack.lastOrNull()?.reuse = enc
 
             // 3. Overwrite canvas region with PorterDuff.Mode.SRC
             val nativeCanvas = Canvas(canvas)
@@ -400,6 +458,11 @@ class TieredHistory(
                 op = patchToRestore.op,
                 strokeNo = patchToRestore.strokeNo
             )
+            // The encoding describes the pixels this undo patch captures now. It is still there only if nothing
+            // drawn since the undo touched this area (that would have cleared it), so the pixels are the same
+            // ones whether the step is restored from its saved pixels or replayed from its stroke.
+            undoPatch.reuse = patchToRestore.reuse
+            patchToRestore.reuse = null
             hotStore.add(undoPatch)
             undoHistory.addLast(undoPatch)
             totalRawEquivalentBytes += undoPatch.rawLength.toLong()
@@ -422,8 +485,26 @@ class TieredHistory(
             if (replay) "vẽ lại trên bản vẽ hiện tại" else "khôi phục pixel"
         )
 
-        tierPolicy.enforceBudgets()
+        settleTiers()
         return@withContext true
+    }
+
+    /** The Cold file read by the latest [resolveBitmapForPatch], if it had to read one. */
+    private var lastPayload: ColdFilePayload? = null
+
+    private fun encodingOf(p: Patch, w: Int, h: Int): Patch.Encoding? {
+        if (!tierPolicy.config.reuseEncodings) return null
+        p.reuse?.let { return it }
+        val level = if (p.warmLevel > 0) p.warmLevel else tierPolicy.config.compressionLevel
+        val warm = p.compressedBytes
+        if (warm != null && p.rawLength > 0) {
+            val file = p.keptFile
+            p.keptFile = null                       // the encoding owns the file from now on
+            return Patch.Encoding(warm, p.rawLength, p.crc32, level, p.deepCompressed, p.coldTrips, file)
+        }
+        val read = lastPayload ?: return null
+        val cold = if (p.deepCompressed) tierPolicy.config.coldCompressionLevel else level
+        return Patch.Encoding(read.compressedBytes, read.rawLength, read.crc32, cold, p.deepCompressed, p.coldTrips)
     }
 
     private suspend fun resolveBitmapForPatch(patch: Patch, width: Int, height: Int): Bitmap {
@@ -453,6 +534,7 @@ class TieredHistory(
         val readStart = System.nanoTime()
         val early = prefetcher.takeEarlyRead(patch)          // usually already read while the previous step ran
         val payload = early ?: coldStore.readPayload(patch)
+        lastPayload = payload
         val readNs = System.nanoTime() - readStart           // what is left to wait is the real stall
         stepReadNs += readNs
         if (early == null) prefetcher.recordFetch(readBytes, readNs)
@@ -490,6 +572,7 @@ class TieredHistory(
     fun updateTierConfig(newConfig: TierConfig) {
         tierConfig = newConfig
         tierPolicy.config = newConfig
+        prefetcher.keepColdFiles = newConfig.reuseEncodings
         scope.launch {
             tierPolicy.enforceBudgets()
         }
@@ -509,6 +592,9 @@ class TieredHistory(
             prefetchMisses = prefetcher.misses.get(),
             prefetchLookahead = prefetcher.lastLookaheadGroups,
             predecodedPatches = prefetcher.predecodeCount,
+            predecodedBytes = prefetcher.predecodedBytes,
+            hotBudgetBytes = tierPolicy.hotBudget(),
+            warmBudgetBytes = tierPolicy.warmBudget(),
             lastUndoReadMs = lastReadNs / 1_000_000.0,
             lastUndoDecompressMs = lastDecompressNs / 1_000_000.0,
             lastUndoApplyMs = lastApplyNs / 1_000_000.0,
@@ -521,6 +607,14 @@ class TieredHistory(
             costApplyMs = costs.totalsMs()[5],
             oomCleanerReclaimedBytes = tierPolicy.oomCleanerReclaimedBytes,
             deduplicatedPatches = tierPolicy.deduplicatedPatches,
+            reusedEncodings = tierPolicy.reusedEncodings,
+            reusedColdFiles = tierPolicy.reusedColdFiles,
+            codecSolid = tierPolicy.codecs.count(PatchFormat.SOLID),
+            codecRle = tierPolicy.codecs.count(PatchFormat.RLE),
+            codecDelta = tierPolicy.codecs.count(PatchFormat.DELTA),
+            codecDeflate = tierPolicy.codecs.count(PatchFormat.DEFLATE),
+            codecSavedBytes = tierPolicy.codecs.savedVsDeflateBytes,
+            codecTrialMs = tierPolicy.codecs.trialNs / 1_000_000.0,
             coldPressureEvents = tierPolicy.coldPressureEvents,
             coldRescuedBytes = tierPolicy.coldRescuedBytes,
             coldEvictedSteps = tierPolicy.evictedStrokes,
@@ -532,6 +626,7 @@ class TieredHistory(
 
     override fun clear() {
         scope.launch {
+            tierPolicy.epoch++           // moves still in flight must not put their step back
             hotStore.clear()
             warmStore.clear()
             coldStore.clear()

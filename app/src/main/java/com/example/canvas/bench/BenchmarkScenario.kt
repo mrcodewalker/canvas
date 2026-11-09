@@ -24,6 +24,10 @@ enum class ScenarioType(val title: String, val description: String) {
         "E5 · Áp lực bộ nhớ ở bước 150",
         "Gây áp lực bộ nhớ ở bước 150, vẽ tiếp, rồi hoàn tác để kiểm tra không mất dữ liệu."
     ),
+    E7_UNDO_REDO_BOUNDARY(
+        "E7 · Hoàn tác và làm lại sát ranh giới tầng",
+        "Vẽ rồi lặp: hoàn tác vài bước, làm lại đúng các bước đó; đo công nén, giải nén và ghi đĩa thừa khi dữ liệu nằm sát ranh giới Warm/Cold."
+    ),
     E6_CORRECTNESS_HASH(
         "E6 · Đúng từng điểm ảnh",
         "Vẽ nhiều nét rồi hoàn tác hết; canvas phải trùng khớp từng bit với trạng thái ban đầu."
@@ -35,5 +39,10 @@ data class BenchmarkConfig(
     val strokeType: StrokeType = StrokeType.LARGE,
     val stepCount: Int = 300,
     val seed: Long = 42L,
-    val sampleIntervalMs: Long = 250L
+    val sampleIntervalMs: Long = 250L,
+    /** Pause between two undos of the continuous-undo scenario, like a person tapping Undo (not counted as latency). */
+    val undoThinkMs: Long = 0L,
+    /** E7: how many steps are undone and then redone in one round, and how many rounds are made. */
+    val cycleDepth: Int = 4,
+    val cycleCount: Int = 10
 )

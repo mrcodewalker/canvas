@@ -98,9 +98,35 @@ object PatchCodec {
         return decompressed
     }
 
+    /** Restores [rawLength] bytes into [dest] whatever format [compressedBytes] is in (see [PatchFormat]). */
+    fun decompressInto(compressedBytes: ByteArray, dest: ByteArray, rawLength: Int, expectedCrc32: Long = 0L) =
+        inflateInto(compressedBytes, dest, rawLength, expectedCrc32)
+
+    /** True when the bytes are a plain zlib stream, the only form that deeper recompression can improve. */
+    fun isDeflate(compressedBytes: ByteArray): Boolean = AdaptiveCodec.formatOf(compressedBytes) == PatchFormat.DEFLATE
+
     private fun inflateInto(compressedBytes: ByteArray, dest: ByteArray, rawLength: Int, expectedCrc32: Long) {
+        when (AdaptiveCodec.formatOf(compressedBytes)) {
+            PatchFormat.SOLID, PatchFormat.RLE -> AdaptiveCodec.decodeRunsInto(compressedBytes, dest, rawLength)
+            PatchFormat.DELTA -> {
+                inflateZlib(compressedBytes, 1, dest, rawLength)
+                AdaptiveCodec.deltaUnfilterInPlace(dest, rawLength)
+            }
+            PatchFormat.DEFLATE -> inflateZlib(compressedBytes, 0, dest, rawLength)
+        }
+
+        if (expectedCrc32 != 0L) {
+            val crc = CRC32()
+            crc.update(dest, 0, rawLength)
+            if (crc.value != expectedCrc32) {
+                throw IllegalStateException("CRC32 mismatch after decompression: expected $expectedCrc32 but got ${crc.value}")
+            }
+        }
+    }
+
+    private fun inflateZlib(compressedBytes: ByteArray, from: Int, dest: ByteArray, rawLength: Int) {
         val inflater = Inflater()
-        inflater.setInput(compressedBytes)
+        inflater.setInput(compressedBytes, from, compressedBytes.size - from)
 
         var offset = 0
         while (!inflater.finished() && offset < rawLength) {
@@ -113,13 +139,22 @@ object PatchCodec {
         if (offset != rawLength) {
             throw IllegalStateException("Decompression size mismatch: expected $rawLength bytes but got $offset")
         }
+    }
 
-        if (expectedCrc32 != 0L) {
-            val crc = CRC32()
-            crc.update(dest, 0, rawLength)
-            if (crc.value != expectedCrc32) {
-                throw IllegalStateException("CRC32 mismatch after decompression: expected $expectedCrc32 but got ${crc.value}")
-            }
+    /** Like [compressBitmap], but [selector] picks the format (solid / run-length / delta / plain Deflate). */
+    fun compressBitmapAdaptive(
+        bitmap: Bitmap,
+        level: Int,
+        selector: CodecSelector,
+        priceNsPerByte: Double?
+    ): CompressedPatch {
+        val byteCount = bitmap.byteCount
+        val raw = BufferPool.acquire(byteCount)
+        try {
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(raw, 0, byteCount))
+            return selector.encode(raw, byteCount, level, priceNsPerByte).patch
+        } finally {
+            BufferPool.release(raw)
         }
     }
 
@@ -186,9 +221,11 @@ object PatchCodec {
     /**
      * Helper to compute CRC32 of any byte array.
      */
-    fun computeCrc32(bytes: ByteArray): Long {
+    fun computeCrc32(bytes: ByteArray): Long = computeCrc32(bytes, bytes.size)
+
+    fun computeCrc32(bytes: ByteArray, length: Int): Long {
         val crc = CRC32()
-        crc.update(bytes)
+        crc.update(bytes, 0, length)
         return crc.value
     }
 }

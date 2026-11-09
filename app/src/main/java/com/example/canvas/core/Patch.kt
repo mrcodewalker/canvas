@@ -55,6 +55,38 @@ data class Patch(
     /** Deflate level the Warm bytes of this patch were compressed with (0 = not compressed yet). */
     @Volatile var warmLevel: Int = 0
 
+    /**
+     * How many times this patch was already written to Cold. A patch that comes back (undo/redo near the
+     * Warm/Cold boundary) is not squeezed harder again: the first squeeze already paid for itself or did not,
+     * and repeating it would only burn CPU while the patch flips between the two tiers.
+     */
+    @Volatile var coldTrips: Int = 0
+
+    /**
+     * The compressed form of exactly these pixels, kept when the patch was undone: redo captures the very same
+     * pixels again, so the new patch can take this encoding instead of compressing (and later writing) them again.
+     * Null when unknown or when the pixels may have changed.
+     */
+    @Volatile var reuse: Encoding? = null
+
+    /**
+     * A Cold file that still holds exactly this patch's compressed bytes although the patch lives in RAM now
+     * (it was read back by undo or prefetch). Going back to Cold then costs nothing: no compression, no write.
+     */
+    @Volatile var keptFile: String? = null
+
+    /** A finished encoding of a patch's pixels, with what the next tier move needs to know about it. */
+    class Encoding(
+        val bytes: ByteArray,
+        val rawLength: Int,
+        val crc32: Long,
+        val level: Int,
+        val deep: Boolean,
+        val coldTrips: Int,
+        /** Cold file with the same bytes, if one is still on disk. Owned by whoever holds the encoding. */
+        val filePath: String? = null
+    )
+
     /** Unique per instance (not part of equals/hashCode): lets the stores find a patch in O(1). */
     val uid: Long = uidCounter.incrementAndGet()
 
@@ -77,6 +109,19 @@ data class Patch(
     }
 
     /**
+     * Gives the pixels back to the system but keeps [reuse]: for a redo step whose stroke can be replayed, the
+     * pixels are only a cache, while the encoding (small) still describes the pixels an undo will need again.
+     */
+    fun freePixels() {
+        try {
+            if (bitmap != null && !bitmap!!.isRecycled) {
+                bitmap!!.recycle()
+            }
+        } catch (_: Throwable) {}
+        bitmap = null
+    }
+
+    /**
      * Safely recycles the bitmap reference if it exists and is not already recycled.
      */
     fun recycle() {
@@ -86,5 +131,8 @@ data class Patch(
             }
         } catch (_: Throwable) {}
         bitmap = null
+        // pixels freed: the encoding can no longer be trusted to match them, and its file is of no use
+        reuse?.filePath?.let { try { java.io.File(it).delete() } catch (_: Throwable) {} }
+        reuse = null
     }
 }

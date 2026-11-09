@@ -243,7 +243,7 @@ fun SwamComparisonReportContent(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "1. Sức chứa lịch sử hoàn tác trước và sau tối ưu",
+                        text = "1. Sức chứa lịch sử hoàn tác (ước tính từ số đo)",
                         color = Color(0xFFF2EEE7),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
@@ -251,7 +251,7 @@ fun SwamComparisonReportContent(
                 }
 
                 Text(
-                    text = "Giới hạn Heap của thiết bị: ${report.deviceHeapLimitMb} MB (Ngân sách lịch sử khả dụng: ${report.availableHeapForHistoryMb} MB RAM + ${report.coldStorageBudgetMb} MB bộ nhớ Cold):",
+                    text = "Heap tối đa của thiết bị: ${report.deviceHeapLimitMb} MB. Ước tính = ngân sách (${report.availableHeapForHistoryMb} MB RAM, riêng Tiered cộng thêm ${report.coldStorageBudgetMb} MB đĩa) chia cho dung lượng mỗi bước đã đo, giả định các nét sau giống các nét đã vẽ. Đây là số suy ra, chưa vẽ thật tới giới hạn.",
                     color = Color(0xFF9A948A),
                     fontSize = 11.sp
                 )
@@ -306,7 +306,7 @@ fun SwamComparisonReportContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Nhận xét từ số liệu thực nghiệm: Khi kết hợp cắt khung bao (Dirty Rect) với phân tầng bộ nhớ Hot → Warm (nén Deflate) → Cold (tệp .chrf trên Flash), dung lượng trung bình mỗi bước giảm còn ${String.format(Locale.US, "%.1f", report.tieredSwam.avgStepSizeKb)} KB, giúp số bước hoàn tác tối đa tăng gấp ${String.format(Locale.US, "%,d", capacityMultiplier)} lần (từ ${report.naive.maxUndoInRamSteps} bước lên ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước).",
+                        text = "Nhận xét: với các nét của lần chạy này, Tiered lưu trung bình ${String.format(Locale.US, "%.0f", report.tieredSwam.avgStepSizeKb)} KB mỗi bước (tính cả Hot, Warm và Cold) so với ${String.format(Locale.US, "%.0f", report.naive.avgStepSizeKb)} KB của Naive. Nếu các nét sau cũng như vậy, cùng ngân sách sẽ chứa được cỡ ${String.format(Locale.US, "%,d", capacityMultiplier)} lần số bước (khoảng ${String.format(Locale.US, "%,d", report.naive.maxUndoInRamSteps)} lên ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước). Nét vẽ thật phức tạp hơn nét thử nên con số này chỉ là ước tính.",
                         color = Color(0xFFCFC9BF),
                         fontSize = 11.sp,
                         lineHeight = 16.sp,

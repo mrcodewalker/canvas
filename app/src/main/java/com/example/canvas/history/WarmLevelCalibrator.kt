@@ -9,7 +9,7 @@ package com.example.canvas.history
  * `ratio gain >= time increase`. On stroke-like pixels this accepts the cheap levels that are practically free
  * and stops where zlib switches to its slower lazy matching, where each extra percent costs several percent of CPU.
  */
-class WarmLevelCalibrator(private val candidates: List<Int> = listOf(1, 2, 3, 4)) {
+class WarmLevelCalibrator(private val candidates: List<Int> = listOf(1, 3)) {
 
     private class Stat {
         var raw = 0.0
