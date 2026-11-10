@@ -84,7 +84,7 @@ class DirtyRectHistory(
         return result
     }
 
-    private fun distinctGroups(stack: ArrayDeque<Patch>): Int {
+    private fun distinctGroups(stack: Collection<Patch>): Int {
         // stats() may race with a mutation on another thread: fall back to the raw size then.
         return try {
             var count = 0
@@ -181,13 +181,16 @@ class DirtyRectHistory(
     }
 
     override fun stats(): HistoryStats {
+        // read from another thread while strokes are being committed: work on copies, never on the live stacks
+        val undo = snapshotOf(undoStack)
+        val redo = snapshotOf(redoStack)
         var bytes = 0L
         var hotCount = 0
-        for (p in undoStack) {
+        for (p in undo) {
             bytes += p.sizeBytes
             hotCount++
         }
-        for (p in redoStack) {
+        for (p in redo) {
             bytes += if (RedoMerge.hasPixels(p)) p.sizeBytes else 0L
         }
         return HistoryStats(
@@ -197,8 +200,8 @@ class DirtyRectHistory(
             hotSteps = hotCount,
             warmSteps = 0,
             coldSteps = 0,
-            totalSteps = distinctGroups(undoStack),
-            redoSteps = distinctGroups(redoStack)
+            totalSteps = distinctGroups(undo),
+            redoSteps = distinctGroups(redo)
         )
     }
 

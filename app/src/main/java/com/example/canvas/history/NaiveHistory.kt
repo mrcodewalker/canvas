@@ -110,13 +110,16 @@ class NaiveHistory(
     }
 
     override fun stats(): HistoryStats {
+        // read from another thread while strokes are being committed: work on copies, never on the live stacks
+        val undo = snapshotOf(undoStack)
+        val redo = snapshotOf(redoStack)
         var bytes = 0L
         var hotCount = 0
-        for (p in undoStack) {
+        for (p in undo) {
             bytes += p.sizeBytes
             hotCount++
         }
-        for (p in redoStack) {
+        for (p in redo) {
             bytes += p.sizeBytes
         }
         return HistoryStats(
@@ -127,7 +130,7 @@ class NaiveHistory(
             warmSteps = 0,
             coldSteps = 0,
             totalSteps = hotCount,
-            redoSteps = redoStack.size
+            redoSteps = redo.size
         )
     }
 

@@ -83,3 +83,20 @@ interface HistoryManager {
     fun stats(): HistoryStats
     fun clear()
 }
+
+/**
+ * A copy of [src] that is safe to take while another thread is pushing or popping it. The history stacks are
+ * changed under a coroutine mutex on one thread, while telemetry reads their stats from another; iterating them
+ * there threw ConcurrentModificationException and crashed the app. A torn copy is retried; if it keeps failing the
+ * caller gets an empty list rather than a crash (stats are advisory, the next sample is a moment away).
+ */
+internal fun <T : Any> snapshotOf(src: Collection<T>): List<T> {
+    repeat(8) {
+        try {
+            return ArrayList(src).filterNotNull()
+        } catch (_: RuntimeException) {
+            // changed under us: take it again
+        }
+    }
+    return emptyList()
+}
