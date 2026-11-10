@@ -393,6 +393,9 @@ class XRayView @JvmOverloads constructor(
         canvas.drawText(text, bounds.left + dp(12f), bounds.top + dp(32f), labelPaint)
     }
 
+    private fun mbText(mb: Float): String =
+        if (mb >= 1024f) "%.1f GB".format(mb / 1024f) else "%.1f MB".format(mb)
+
     private fun drawExpandedContent(canvas: Canvas, bounds: RectF) {
         val tel = currentTelemetry
         var currentY = bounds.top + dp(37f)
@@ -401,11 +404,16 @@ class XRayView @JvmOverloads constructor(
         val left = bounds.left + dp(12f)
         val barHeight = dp(9f)
         val barCapacityMb = max(1f, max(tel.hotMb + tel.warmMb + tel.coldMb, tel.peakHeapMb))
+        // each tier is measured against its own limit; modes without tiers keep one shared scale
+        val hotCap = if (tel.hotBudgetMb > 0f) tel.hotBudgetMb else barCapacityMb
+        val warmCap = if (tel.warmBudgetMb > 0f) tel.warmBudgetMb else barCapacityMb
+        val coldCap = if (tel.coldBudgetMb > 0f) max(tel.coldBudgetMb, tel.coldMb) else barCapacityMb
+        val ofBudget = tel.hotBudgetMb > 0f
 
         // 1. HOT STORE GAUGE
-        val hotPct = if (barCapacityMb > 0f) ((tel.hotMb / barCapacityMb) * 100f).toInt() else 0
+        val hotPct = if (hotCap > 0f) ((tel.hotMb / hotCap) * 100f).toInt() else 0
         canvas.drawText("🔥 HOT (In-RAM Bitmaps • O(1))", left, currentY + dp(8f), labelPaint)
-        val hotValText = "%.2f MB (%d steps)".format(tel.hotMb, tel.hotSteps)
+        val hotValText = if (ofBudget) "%s / %s · %d bước".format(mbText(tel.hotMb), mbText(hotCap), tel.hotSteps) else "%.2f MB (%d steps)".format(tel.hotMb, tel.hotSteps)
         val hotPctText = "[$hotPct%]"
         val hotPctWidth = pctTagPaint.measureText(hotPctText)
         val hotValWidth = subMetricPaint.measureText(hotValText)
@@ -419,7 +427,7 @@ class XRayView @JvmOverloads constructor(
         canvas.drawRoundRect(barRect, dp(4.5f), dp(4.5f), trackBgPaint)
         canvas.drawRoundRect(barRect, dp(4.5f), dp(4.5f), trackBorderPaint)
 
-        val hotFrac = (tel.hotMb / barCapacityMb).coerceIn(0f, 1f)
+        val hotFrac = (tel.hotMb / hotCap).coerceIn(0f, 1f)
         if (hotFrac > 0f) {
             val fillW = (availableWidth * hotFrac).coerceAtLeast(dp(6f))
             barRect.set(left, currentY, left + fillW, currentY + barHeight)
@@ -433,9 +441,9 @@ class XRayView @JvmOverloads constructor(
         currentY += barHeight + dp(5f)
 
         // 2. WARM STORE GAUGE
-        val warmPct = if (barCapacityMb > 0f) ((tel.warmMb / barCapacityMb) * 100f).toInt() else 0
+        val warmPct = if (warmCap > 0f) ((tel.warmMb / warmCap) * 100f).toInt() else 0
         canvas.drawText("⚡ WARM (Deflate LZ4 • O(log N))", left, currentY + dp(8f), labelPaint)
-        val warmValText = "%.2f MB (%d steps)".format(tel.warmMb, tel.warmSteps)
+        val warmValText = if (ofBudget) "%s / %s · %d bước".format(mbText(tel.warmMb), mbText(warmCap), tel.warmSteps) else "%.2f MB (%d steps)".format(tel.warmMb, tel.warmSteps)
         val warmPctText = "[$warmPct%]"
         val warmPctWidth = pctTagPaint.measureText(warmPctText)
         val warmValWidth = subMetricPaint.measureText(warmValText)
@@ -449,7 +457,7 @@ class XRayView @JvmOverloads constructor(
         canvas.drawRoundRect(barRect, dp(4.5f), dp(4.5f), trackBgPaint)
         canvas.drawRoundRect(barRect, dp(4.5f), dp(4.5f), trackBorderPaint)
 
-        val warmFrac = (tel.warmMb / barCapacityMb).coerceIn(0f, 1f)
+        val warmFrac = (tel.warmMb / warmCap).coerceIn(0f, 1f)
         if (warmFrac > 0f) {
             val fillW = (availableWidth * warmFrac).coerceAtLeast(dp(6f))
             barRect.set(left, currentY, left + fillW, currentY + barHeight)
@@ -463,9 +471,9 @@ class XRayView @JvmOverloads constructor(
         currentY += barHeight + dp(5f)
 
         // 3. COLD STORE GAUGE
-        val coldPct = if (barCapacityMb > 0f) ((tel.coldMb / barCapacityMb) * 100f).toInt() else 0
+        val coldPct = if (coldCap > 0f) ((tel.coldMb / coldCap) * 100f).toInt() else 0
         canvas.drawText("❄️ COLD (Disk Evicted • O(Disk))", left, currentY + dp(8f), labelPaint)
-        val coldValText = "%.2f MB (%d steps)".format(tel.coldMb, tel.coldSteps)
+        val coldValText = if (ofBudget) "%s / %s · %d bước".format(mbText(tel.coldMb), mbText(coldCap), tel.coldSteps) else "%.2f MB (%d steps)".format(tel.coldMb, tel.coldSteps)
         val coldPctText = "[$coldPct%]"
         val coldPctWidth = pctTagPaint.measureText(coldPctText)
         val coldValWidth = subMetricPaint.measureText(coldValText)
@@ -479,7 +487,7 @@ class XRayView @JvmOverloads constructor(
         canvas.drawRoundRect(barRect, dp(4.5f), dp(4.5f), trackBgPaint)
         canvas.drawRoundRect(barRect, dp(4.5f), dp(4.5f), trackBorderPaint)
 
-        val coldFrac = (tel.coldMb / barCapacityMb).coerceIn(0f, 1f)
+        val coldFrac = (tel.coldMb / coldCap).coerceIn(0f, 1f)
         if (coldFrac > 0f) {
             val fillW = (availableWidth * coldFrac).coerceAtLeast(dp(6f))
             barRect.set(left, currentY, left + fillW, currentY + barHeight)

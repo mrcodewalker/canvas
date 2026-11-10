@@ -595,6 +595,7 @@ class TieredHistory(
             predecodedBytes = prefetcher.predecodedBytes,
             hotBudgetBytes = tierPolicy.hotBudget(),
             warmBudgetBytes = tierPolicy.warmBudget(),
+            coldBudgetBytes = minOf(tierConfig.coldMaxBytes, coldStore.totalBytes + tierPolicy.diskFree()),
             lastUndoReadMs = lastReadNs / 1_000_000.0,
             lastUndoDecompressMs = lastDecompressNs / 1_000_000.0,
             lastUndoApplyMs = lastApplyNs / 1_000_000.0,

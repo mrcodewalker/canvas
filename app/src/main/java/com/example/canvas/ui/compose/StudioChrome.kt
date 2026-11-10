@@ -268,7 +268,7 @@ fun MemoryPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            TierBar(telemetry.hotMb, telemetry.warmMb, telemetry.coldMb)
+            if (telemetry.hotBudgetMb > 0f) TierMeters(telemetry) else TierBar(telemetry.hotMb, telemetry.warmMb, telemetry.coldMb)
             Text(
                 text = "${telemetry.totalSteps} bước",
                 color = InkText,
@@ -286,6 +286,43 @@ fun MemoryPill(
                 fontSize = 11.5.sp
             )
         }
+    }
+}
+
+private fun mbText(mb: Float): String =
+    if (mb >= 1024f) String.format(java.util.Locale.US, "%.1f GB", mb / 1024f) else String.format(java.util.Locale.US, "%.1f MB", mb)
+
+/**
+ * Hot, Warm and Cold as three short rows, each filled against that tier's own limit, with the numbers beside it:
+ * "3.1 / 4.0 MB" says how much of the tier is used, which a share-of-total bar cannot.
+ */
+@Composable
+private fun TierMeters(t: XRayCurrentTelemetry) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        TierMeterRow("Hot", t.hotMb, t.hotBudgetMb, CoralRose)
+        TierMeterRow("Warm", t.warmMb, t.warmBudgetMb, AmberGold)
+        TierMeterRow("Cold", t.coldMb, t.coldBudgetMb, SkyBlue, showLimit = true, fullMeansLimit = false)
+    }
+}
+
+@Composable
+private fun TierMeterRow(name: String, used: Float, budget: Float, color: Color, showLimit: Boolean = true, fullMeansLimit: Boolean = true) {
+    val frac = if (budget > 0f) (used / budget).coerceIn(0f, 1f) else 0f
+    val full = fullMeansLimit && frac >= 0.97f
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(name, color = MutedText, fontSize = 10.5.sp, modifier = Modifier.width(30.dp), maxLines = 1)
+        Box(Modifier.width(64.dp).height(5.dp).background(CyberCardBorder)) {
+            if (frac > 0f) Box(Modifier.fillMaxWidth(frac.coerceAtLeast(0.03f)).height(5.dp).background(color))
+        }
+        Text(
+            text = if (!showLimit || budget <= 0f) mbText(used)
+            else if (budget >= 1024f || used >= 1024f) mbText(used) + " / " + mbText(budget)
+            else String.format(java.util.Locale.US, "%.1f / %.1f MB", used, budget),
+            color = if (full) color else InkText,
+            fontSize = 10.5.sp,
+            fontWeight = if (full) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1
+        )
     }
 }
 

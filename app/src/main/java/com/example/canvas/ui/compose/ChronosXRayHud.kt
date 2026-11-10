@@ -92,12 +92,21 @@ fun ChronosXRayHud(
             }
 
             // the three tiers
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SplitBar(telemetry.hotMb, telemetry.warmMb, telemetry.coldMb)
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    TierStat("Hot", "RAM", telemetry.hotMb, telemetry.hotSteps, CoralRose, Modifier.weight(1f))
-                    TierStat("Warm", "RAM nén", telemetry.warmMb, telemetry.warmSteps, AmberGold, Modifier.weight(1f))
-                    TierStat("Cold", "đĩa", telemetry.coldMb, telemetry.coldSteps, SkyBlue, Modifier.weight(1f))
+            if (telemetry.hotBudgetMb > 0f) {
+                // Tiered: every tier is filled against its own limit, so "full" means full
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    TierGauge("Hot", "RAM", telemetry.hotMb, telemetry.hotBudgetMb, telemetry.hotSteps, CoralRose, Modifier.weight(1f))
+                    TierGauge("Warm", "RAM nén", telemetry.warmMb, telemetry.warmBudgetMb, telemetry.warmSteps, AmberGold, Modifier.weight(1f))
+                    TierGauge("Cold", "đĩa", telemetry.coldMb, telemetry.coldBudgetMb, telemetry.coldSteps, SkyBlue, Modifier.weight(1f))
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SplitBar(telemetry.hotMb, telemetry.warmMb, telemetry.coldMb)
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        TierStat("Hot", "RAM", telemetry.hotMb, telemetry.hotSteps, CoralRose, Modifier.weight(1f))
+                        TierStat("Warm", "RAM nén", telemetry.warmMb, telemetry.warmSteps, AmberGold, Modifier.weight(1f))
+                        TierStat("Cold", "đĩa", telemetry.coldMb, telemetry.coldSteps, SkyBlue, Modifier.weight(1f))
+                    }
                 }
             }
 
@@ -167,6 +176,32 @@ private fun SplitBar(hot: Float, warm: Float, cold: Float) {
             drawRoundRect(part.second, Offset(x, 0f), Size(w, size.height), r)
             x += w + gap
         }
+    }
+}
+
+private fun mbTextHud(mb: Float): String =
+    if (mb >= 1024f) String.format(Locale.US, "%.1f GB", mb / 1024f) else String.format(Locale.US, "%.1f MB", mb)
+
+/** One tier: how much it holds, of how much it may hold, a bar filled to exactly that share, and the step count. */
+@Composable
+private fun TierGauge(name: String, caption: String, used: Float, budget: Float, steps: Int, color: Color, modifier: Modifier) {
+    val frac = if (budget > 0f) (used / budget).coerceIn(0f, 1f) else 0f
+    val pct = (frac * 100f).toInt()
+    val full = frac >= 0.97f
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(6.dp))
+            Text(name, color = InkText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.weight(1f))
+            Text("$pct%", color = if (full) color else MutedText, fontSize = 12.sp, fontWeight = if (full) FontWeight.Bold else FontWeight.Medium)
+        }
+        Text(String.format(Locale.US, "%.2f MB", used), color = InkText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text("của ${mbTextHud(budget)}", color = MutedText, fontSize = 11.5.sp, maxLines = 1)
+        Box(Modifier.fillMaxWidth().height(6.dp).background(CyberCardBorder)) {
+            if (used > 0f) Box(Modifier.fillMaxWidth(frac.coerceAtLeast(0.03f)).height(6.dp).background(color))
+        }
+        Text("$steps bước · $caption", color = MutedText, fontSize = 11.5.sp, maxLines = 1)
     }
 }
 

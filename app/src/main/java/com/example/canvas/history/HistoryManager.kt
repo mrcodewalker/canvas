@@ -28,6 +28,8 @@ data class HistoryStats(
     /** Budgets in force for Hot and Warm (Tiered only), so a display can show how full each tier is. */
     val hotBudgetBytes: Long = 0L,
     val warmBudgetBytes: Long = 0L,
+    /** What Cold can still grow to: its own limit, or what the disk has left, whichever is smaller. */
+    val coldBudgetBytes: Long = 0L,
     /** Breakdown of the last undo: disk read, decompression, and drawing the patch (milliseconds). */
     val lastUndoReadMs: Double = 0.0,
     val lastUndoDecompressMs: Double = 0.0,

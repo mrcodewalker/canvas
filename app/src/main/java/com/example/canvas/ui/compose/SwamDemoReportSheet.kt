@@ -2,11 +2,14 @@ package com.example.canvas.ui.compose
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,23 +21,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AllInclusive
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Functions
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -47,12 +43,9 @@ import com.example.canvas.history.HistoryMode
 import com.example.canvas.ui.theme.AmberGold
 import com.example.canvas.ui.theme.CoralRose
 import com.example.canvas.ui.theme.CyberObsidian
-import com.example.canvas.ui.theme.ElectricIndigo
-import com.example.canvas.ui.theme.EmeraldGreen
 import com.example.canvas.ui.theme.RadiantMint
 import com.example.canvas.ui.theme.SkyBlue
 import java.util.Locale
-import kotlin.math.ln
 import kotlin.math.max
 
 /**
@@ -85,6 +78,15 @@ data class SwamComparisonReport(
     val tieredSwam: ModeEvaluationMetrics
 )
 
+// A flat page: one background, hairline rules between sections, almost no rounding.
+private val Ink = Color(0xFFF2EEE7)
+private val Body = Color(0xFFCFC9BF)
+private val Muted = Color(0xFF9A948A)
+private val Rule = Color(0xFF34312D)
+private val Track = Color(0xFF2A2825)
+private val Well = Color(0xFF1D1B19)
+private val Corner = 2.dp
+
 @Composable
 fun SwamDemoReportModal(
     report: SwamComparisonReport,
@@ -104,106 +106,51 @@ fun SwamDemoReportModal(
                 .background(CyberObsidian)
                 .systemBarsPadding()
         ) {
-            // Top Header Bar
-            Surface(
-                color = Color(0xFF1F1D1B),
-                border = BorderStroke(1.dp, Color(0xFF3A3733)),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(Modifier.weight(1f)) {
+                    Text("So sánh 3 chế độ lưu lịch sử", color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Naive · Dirty rect · Tiered, đo trên thiết bị này", color = Muted, fontSize = 12.sp)
+                }
+                Box(
+                    modifier = Modifier.size(48.dp).clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Analytics,
-                            contentDescription = null,
-                            tint = SkyBlue,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "Báo cáo thực nghiệm so sánh 3 chế độ lưu lịch sử",
-                                color = Color(0xFFF2EEE7),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Số liệu đo trực tiếp trên thiết bị (Naive · Dirty Rect · Tiered 3 tầng)",
-                                color = Color(0xFF9A948A),
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF2A2825))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Đóng",
-                            tint = Color(0xFFCFC9BF),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
+                    Icon(Icons.Default.Close, contentDescription = "Đóng", tint = Body, modifier = Modifier.size(20.dp))
                 }
             }
+            HorizontalDivider(color = Rule)
 
-            // Scrollable Report Body
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 SwamComparisonReportContent(report = report)
 
-                // Bottom Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
                         onClick = onRerunDemo,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2A2825),
-                            contentColor = Color(0xFFF2EEE7)
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Replay, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Chạy lại phép đo", fontWeight = FontWeight.Medium, fontSize = 12.sp)
-                    }
-
+                        shape = RoundedCornerShape(Corner),
+                        border = BorderStroke(1.dp, Rule),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) { Text("Chạy lại phép đo", fontSize = 13.sp, maxLines = 1) }
                     Button(
                         onClick = onDismiss,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFD9482D),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Quay lại bàn vẽ", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    }
+                        shape = RoundedCornerShape(Corner),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD9482D), contentColor = Color.White),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) { Text("Quay lại bàn vẽ", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -216,440 +163,200 @@ fun SwamComparisonReportContent(
     val capacityMultiplier = if (report.naive.maxUndoInRamSteps > 0) {
         (report.tieredSwam.maxUndoWithDiskSteps.toDouble() / report.naive.maxUndoInRamSteps.toDouble()).toInt()
     } else 0
+    val t = report.tieredSwam
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // =========================================================================
-        // PHẦN 1: TỔNG KẾT SỨC CHỨA LỊCH SỬ HOÀN TÁC
-        // =========================================================================
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF1F1D1B),
-            border = BorderStroke(1.dp, Color(0xFF3A3733)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.AllInclusive,
-                        contentDescription = null,
-                        tint = SkyBlue,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "1. Sức chứa lịch sử hoàn tác (ước tính từ số đo)",
-                        color = Color(0xFFF2EEE7),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
 
-                Text(
-                    text = "Heap tối đa của thiết bị: ${report.deviceHeapLimitMb} MB. Ước tính = ngân sách (${report.availableHeapForHistoryMb} MB RAM, riêng Tiered cộng thêm ${report.coldStorageBudgetMb} MB đĩa) chia cho dung lượng mỗi bước đã đo, giả định các nét sau giống các nét đã vẽ. Đây là số suy ra, chưa vẽ thật tới giới hạn.",
-                    color = Color(0xFF9A948A),
-                    fontSize = 11.sp
+        // ---------------------------------------------------------------- 1. capacity
+        Section("1", "Số bước hoàn tác chứa được") {
+            Text(
+                "Ước tính, chưa vẽ tới giới hạn: ngân sách ${report.availableHeapForHistoryMb} MB RAM (Tiered có thêm " +
+                    "${report.coldStorageBudgetMb} MB đĩa) chia cho dung lượng một bước đã đo, giả định các nét sau giống " +
+                    "các nét đã vẽ. Heap tối đa của máy: ${report.deviceHeapLimitMb} MB.",
+                color = Muted, fontSize = 12.sp, lineHeight = 17.sp
+            )
+            Column {
+                TableHeader("Chế độ", "Mỗi bước", "Số bước")
+                HorizontalDivider(color = Rule)
+                CapacityRow(
+                    name = "Naive", note = "toàn bộ canvas, trong RAM", color = CoralRose,
+                    perStep = String.format(Locale.US, "%.1f MB", report.naive.avgStepSizeKb / 1024.0),
+                    steps = "${report.naive.maxUndoInRamSteps}"
                 )
+                HorizontalDivider(color = Rule)
+                CapacityRow(
+                    name = "Dirty rect", note = "chỉ vùng bao nét, trong RAM", color = AmberGold,
+                    perStep = String.format(Locale.US, "%.1f KB", report.dirtyRect.avgStepSizeKb),
+                    steps = "${report.dirtyRect.maxUndoInRamSteps}"
+                )
+                HorizontalDivider(color = Rule)
+                CapacityRow(
+                    name = "Tiered", note = String.format(Locale.US, "Hot · Warm · Cold, nén %.1fx", t.compressionRatio), color = RadiantMint,
+                    perStep = String.format(Locale.US, "%.1f KB", t.avgStepSizeKb),
+                    steps = String.format(Locale.US, "%,d", t.maxUndoWithDiskSteps)
+                )
+                HorizontalDivider(color = Rule)
+            }
+            Text(
+                "Với các nét của lần chạy này, Tiered lưu trung bình ${String.format(Locale.US, "%.0f", t.avgStepSizeKb)} KB " +
+                    "một bước (đã tính cả Hot, Warm và Cold), Naive ${String.format(Locale.US, "%.0f", report.naive.avgStepSizeKb)} KB. " +
+                    "Nếu các nét sau cũng như vậy, cùng ngân sách chứa được cỡ ${String.format(Locale.US, "%,d", capacityMultiplier)} lần số bước. " +
+                    "Nét vẽ thật phức tạp hơn nét thử, nên đây chỉ là con số ước tính.",
+                color = Body, fontSize = 12.5.sp, lineHeight = 18.sp
+            )
+        }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CapacityCompareBox(
-                        badge = "Trước tối ưu",
-                        modeTitle = "Naive",
-                        undoCountText = "${report.naive.maxUndoInRamSteps} bước",
-                        detailText = String.format(
-                            Locale.US,
-                            "%.1f MB / bước\nLưu toàn bộ trong RAM",
-                            report.naive.avgStepSizeKb / 1024.0
-                        ),
-                        color = CoralRose,
-                        modifier = Modifier.weight(1f)
-                    )
-                    CapacityCompareBox(
-                        badge = "Tối ưu mức 1",
-                        modeTitle = "Dirty Rect",
-                        undoCountText = "${report.dirtyRect.maxUndoInRamSteps} bước",
-                        detailText = String.format(
-                            Locale.US,
-                            "%.1f KB / bước\nCắt vùng bao trong RAM",
-                            report.dirtyRect.avgStepSizeKb
-                        ),
-                        color = AmberGold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    CapacityCompareBox(
-                        badge = "Sau tối ưu (3 tầng)",
-                        modeTitle = "Tiered",
-                        undoCountText = "${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước",
-                        detailText = String.format(
-                            Locale.US,
-                            "%.1f KB / bước (Nén %.1fx)\nHot · Warm · Cold",
-                            report.tieredSwam.avgStepSizeKb,
-                            report.tieredSwam.compressionRatio
-                        ),
-                        color = RadiantMint,
-                        modifier = Modifier.weight(1.1f)
-                    )
-                }
+        // ---------------------------------------------------------------- 2. measurements
+        Section("2", "Số đo") {
+            val maxPeakRam = max(16.0, max(report.naive.peakRamMb, max(report.dirtyRect.peakRamMb, t.peakRamMb)))
+            Group("RAM lịch sử dùng (Hot + Warm)") {
+                Bar("Naive", "${report.naive.stepsExecuted} bước", String.format(Locale.US, "%.2f MB", report.naive.peakRamMb),
+                    report.naive.peakRamMb / maxPeakRam, CoralRose)
+                Bar("Dirty rect", "${report.dirtyRect.stepsExecuted} bước", String.format(Locale.US, "%.2f MB", report.dirtyRect.peakRamMb),
+                    report.dirtyRect.peakRamMb / maxPeakRam, AmberGold)
+                Bar("Tiered",
+                    String.format(Locale.US, "%d bước · Hot %.2f · Warm %.2f · Cold %.2f MB (đĩa)", t.stepsExecuted, t.hotMb, t.warmMb, t.coldMb),
+                    String.format(Locale.US, "%.2f MB", t.hotMb + t.warmMb),
+                    (t.hotMb + t.warmMb) / maxPeakRam, RadiantMint)
+            }
 
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF1B1A18),
-                    border = BorderStroke(1.dp, Color(0xFF3A3733)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Nhận xét: với các nét của lần chạy này, Tiered lưu trung bình ${String.format(Locale.US, "%.0f", report.tieredSwam.avgStepSizeKb)} KB mỗi bước (tính cả Hot, Warm và Cold) so với ${String.format(Locale.US, "%.0f", report.naive.avgStepSizeKb)} KB của Naive. Nếu các nét sau cũng như vậy, cùng ngân sách sẽ chứa được cỡ ${String.format(Locale.US, "%,d", capacityMultiplier)} lần số bước (khoảng ${String.format(Locale.US, "%,d", report.naive.maxUndoInRamSteps)} lên ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước). Nét vẽ thật phức tạp hơn nét thử nên con số này chỉ là ước tính.",
-                        color = Color(0xFFCFC9BF),
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        modifier = Modifier.padding(10.dp)
-                    )
-                }
+            val maxStepKb = max(16384.0, report.naive.avgStepSizeKb)
+            Group("Dung lượng một bước") {
+                Bar("Naive", "bản sao 2048×2048", String.format(Locale.US, "%.1f KB", report.naive.avgStepSizeKb),
+                    report.naive.avgStepSizeKb / maxStepKb, CoralRose)
+                Bar("Dirty rect", "vùng bao chưa nén", String.format(Locale.US, "%.1f KB", report.dirtyRect.avgStepSizeKb),
+                    report.dirtyRect.avgStepSizeKb / maxStepKb, AmberGold)
+                Bar("Tiered",
+                    String.format(Locale.US, "nén %.1fx · gộp trùng %.1f KB", t.compressionRatio, t.oomCleanerSavedKb),
+                    String.format(Locale.US, "%.1f KB", t.avgStepSizeKb),
+                    t.avgStepSizeKb / maxStepKb, RadiantMint)
+            }
+
+            val maxLatency = max(1.0, max(report.naive.avgLatencyMs, max(report.dirtyRect.avgLatencyMs, t.avgLatencyMs)))
+            Group("Thời gian một bước") {
+                Bar("Naive", "chép bitmap 16 MB", String.format(Locale.US, "%.2f ms", report.naive.avgLatencyMs),
+                    report.naive.avgLatencyMs / maxLatency, CoralRose)
+                Bar("Dirty rect", "cắt vùng bao", String.format(Locale.US, "%.2f ms", report.dirtyRect.avgLatencyMs),
+                    report.dirtyRect.avgLatencyMs / maxLatency, AmberGold)
+                Bar("Tiered", String.format(Locale.US, "khôi phục khi Undo · nạp trước trúng %.0f%%", t.prefetchHitRate),
+                    String.format(Locale.US, "%.2f ms", t.avgLatencyMs),
+                    t.avgLatencyMs / maxLatency, SkyBlue)
             }
         }
 
-        // =========================================================================
-        // PHẦN 2: BIỂU ĐỒ ĐỐI CHIẾU SỐ LIỆU ĐO THỰC TẾ
-        // =========================================================================
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF1F1D1B),
-            border = BorderStroke(1.dp, Color(0xFF3A3733)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "2. Biểu đồ số liệu đo thực tế",
-                    color = Color(0xFFF2EEE7),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                val maxPeakRam = max(
-                    16.0,
-                    max(report.naive.peakRamMb, max(report.dirtyRect.peakRamMb, report.tieredSwam.peakRamMb))
-                )
-                Text(
-                    text = "A. Bộ nhớ RAM lịch sử tiêu thụ (Hot + Warm RAM)",
-                    color = Color(0xFFCFC9BF),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                MetricBarRow(
-                    label = "Naive (${report.naive.stepsExecuted} bước thực thi)",
-                    valueText = String.format(Locale.US, "%.2f MB RAM", report.naive.peakRamMb),
-                    fraction = (report.naive.peakRamMb / maxPeakRam).toFloat(),
-                    color = CoralRose
-                )
-                MetricBarRow(
-                    label = "Dirty Rect (${report.dirtyRect.stepsExecuted} bước thực thi)",
-                    valueText = String.format(Locale.US, "%.2f MB RAM", report.dirtyRect.peakRamMb),
-                    fraction = (report.dirtyRect.peakRamMb / maxPeakRam).toFloat(),
-                    color = AmberGold
-                )
-                MetricBarRow(
-                    label = "Tiered (${report.tieredSwam.stepsExecuted} bước: Hot ${String.format(Locale.US, "%.2fM", report.tieredSwam.hotMb)}, Warm ${String.format(Locale.US, "%.2fM", report.tieredSwam.warmMb)}, Cold ${String.format(Locale.US, "%.2fM", report.tieredSwam.coldMb)})",
-                    valueText = String.format(
-                        Locale.US,
-                        "%.2f MB RAM (+ %.2f MB Flash)",
-                        report.tieredSwam.hotMb + report.tieredSwam.warmMb,
-                        report.tieredSwam.coldMb
-                    ),
-                    fraction = ((report.tieredSwam.hotMb + report.tieredSwam.warmMb) / maxPeakRam).toFloat(),
-                    color = RadiantMint
-                )
-
-                HorizontalDivider(color = Color(0xFF3A3733))
-
-                val maxStepKb = max(16384.0, report.naive.avgStepSizeKb)
-                Text(
-                    text = "B. Dung lượng trung bình mỗi bước lưu trữ (KB / bước)",
-                    color = Color(0xFFCFC9BF),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                MetricBarRow(
-                    label = "Naive (Bản sao 2048×2048 ARGB_8888)",
-                    valueText = String.format(Locale.US, "%.1f KB / bước", report.naive.avgStepSizeKb),
-                    fraction = (report.naive.avgStepSizeKb / maxStepKb).toFloat(),
-                    color = CoralRose
-                )
-                MetricBarRow(
-                    label = "Dirty Rect (Vùng bao chưa nén)",
-                    valueText = String.format(Locale.US, "%.1f KB / bước", report.dirtyRect.avgStepSizeKb),
-                    fraction = (report.dirtyRect.avgStepSizeKb / maxStepKb).toFloat(),
-                    color = AmberGold
-                )
-                MetricBarRow(
-                    label = "Tiered (Nén ${String.format(Locale.US, "%.1fx", report.tieredSwam.compressionRatio)} • Gộp trùng ${String.format(Locale.US, "%.1f KB", report.tieredSwam.oomCleanerSavedKb)})",
-                    valueText = String.format(Locale.US, "%.1f KB / bước", report.tieredSwam.avgStepSizeKb),
-                    fraction = (report.tieredSwam.avgStepSizeKb / maxStepKb).toFloat(),
-                    color = RadiantMint
-                )
-
-                HorizontalDivider(color = Color(0xFF3A3733))
-
-                Text(
-                    text = "C. Độ trễ thực thi trung bình & tỷ lệ Prefetch Hit",
-                    color = Color(0xFFCFC9BF),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                val maxLatency = max(1.0, max(report.naive.avgLatencyMs, max(report.dirtyRect.avgLatencyMs, report.tieredSwam.avgLatencyMs)))
-                MetricBarRow(
-                    label = "Naive (Thời gian sao chép Bitmap 16 MB)",
-                    valueText = String.format(Locale.US, "%.2f ms / bước", report.naive.avgLatencyMs),
-                    fraction = (report.naive.avgLatencyMs / maxLatency).toFloat(),
-                    color = CoralRose
-                )
-                MetricBarRow(
-                    label = "Dirty Rect (Thời gian cắt vùng bao)",
-                    valueText = String.format(Locale.US, "%.2f ms / bước", report.dirtyRect.avgLatencyMs),
-                    fraction = (report.dirtyRect.avgLatencyMs / maxLatency).toFloat(),
-                    color = AmberGold
-                )
-                MetricBarRow(
-                    label = "Tiered (Độ trễ khôi phục Undo • Prefetch Hit ${String.format(Locale.US, "%.0f%%", report.tieredSwam.prefetchHitRate)})",
-                    valueText = String.format(Locale.US, "%.2f ms / bước", report.tieredSwam.avgLatencyMs),
-                    fraction = (report.tieredSwam.avgLatencyMs / maxLatency).toFloat(),
-                    color = SkyBlue
-                )
-            }
-        }
-
-        // =========================================================================
-        // PHẦN 3: CƠ SỞ TÍNH TOÁN & LÝ GIẢI KỸ THUẬT
-        // =========================================================================
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF1F1D1B),
-            border = BorderStroke(1.dp, Color(0xFF3A3733)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Functions,
-                        contentDescription = null,
-                        tint = ElectricIndigo,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "3. Cơ sở tính toán từ số liệu thực nghiệm",
-                        color = Color(0xFFF2EEE7),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                MathFormulaCard(
-                    stepBadge = "MÔ HÌNH 1 • NAIVE",
-                    title = "Giới hạn bộ nhớ khi sao chép toàn bộ Canvas (${report.naive.maxUndoInRamSteps} bước)",
-                    formula = "S_canvas = 2048 × 2048 × 4 bytes = 16,384 KB (16.0 MiB / bước)\n" +
-                        "RAM_Naive(N) = 16.0 MiB × N   ⇒   O(N)\n" +
-                        "N_max = ⌊ ${report.availableHeapForHistoryMb} MB / 16.0 MB ⌋ = ${report.naive.maxUndoInRamSteps} bước",
-                    explanation = "Mỗi thao tác vẽ tạo một bản sao Bitmap 2048×2048 nguyên vẹn trong RAM. Với ngân sách lịch sử khả dụng ${report.availableHeapForHistoryMb} MB, ứng dụng chỉ lưu được tối đa ${report.naive.maxUndoInRamSteps} bước trước khi cạn bộ nhớ.",
-                    accentColor = CoralRose
-                )
-
-                val alphaPct = (report.dirtyRect.avgStepSizeKb / 16384.0) * 100.0
-                MathFormulaCard(
-                    stepBadge = "MÔ HÌNH 2 • DIRTY RECT",
-                    title = "Cắt khung bao nét vẽ (${report.dirtyRect.maxUndoInRamSteps} bước trong RAM)",
-                    formula = "Tỷ lệ diện tích trung bình: α = S_dirty / S_canvas = ${String.format(Locale.US, "%.2f%%", alphaPct)}\n" +
-                        "S_dirty = ${String.format(Locale.US, "%.1f", report.dirtyRect.avgStepSizeKb)} KB / bước\n" +
-                        "N_max = ⌊ (${report.availableHeapForHistoryMb} × 1024 KB) / ${String.format(Locale.US, "%.1f", report.dirtyRect.avgStepSizeKb.coerceAtLeast(1.0))} KB ⌋ = ${report.dirtyRect.maxUndoInRamSteps} bước",
-                    explanation = "Chỉ lưu vùng hình chữ nhật bao quanh nét vẽ vừa thực hiện. Tuy giảm đáng kể dung lượng mỗi bước, toàn bộ dữ liệu vẫn nằm trên RAM chưa nén nên vẫn tăng tuyến tính O(N) khi vẽ nhiều nét lớn.",
-                    accentColor = AmberGold
-                )
-
-                MathFormulaCard(
-                    stepBadge = "MÔ HÌNH 3 • TIERED (ARIADNE HPCA '25 + SWAM)",
-                    title = "Phân tầng Hot · Warm · Cold với ngân sách RAM cố định O(1)",
-                    formula = "RAM_Tiered(N) = RAM_Hot + RAM_Warm ≤ B_Hot + B_Warm = O(1)\n" +
-                        "Tỷ lệ nén đo được: r = RawEquivalent / TotalActual = ${String.format(Locale.US, "%.2fx", report.tieredSwam.compressionRatio)}\n" +
-                        "Dung lượng trung bình sau nén: S_tiered = ${String.format(Locale.US, "%.1f", report.tieredSwam.avgStepSizeKb)} KB / bước\n" +
-                        "N_max = N_RAM + ⌊ (${report.coldStorageBudgetMb} × 1024 KB) / S_tiered ⌋ = ${String.format(Locale.US, "%,d", report.tieredSwam.maxUndoWithDiskSteps)} bước",
-                    explanation = "Các bước mới nhất giữ ở tầng Hot (Bitmap RAM) để hoàn tác tức thì. Khi vượt ngân sách Hot, dữ liệu được nén nhanh sang tầng Warm (Deflater L1) và tái nén sâu (AdaptiveComp L9) xuống tầng Cold (.chrf trên bộ nhớ Flash), đồng thời Prefetcher nạp trước thích ứng (độ sâu tự tính từ nhịp undo, tốc độ đọc đĩa, độ dài chuỗi undo và RAM Warm còn trống) khi hoàn tác liên tục.",
-                    accentColor = RadiantMint
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CapacityCompareBox(
-    badge: String,
-    modeTitle: String,
-    undoCountText: String,
-    detailText: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF1B1A18),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.55f))
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = badge,
-                color = color,
-                fontSize = 8.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
+        // ---------------------------------------------------------------- 3. how the numbers were derived
+        Section("3", "Cách tính") {
+            Formula(
+                tag = "Naive", color = CoralRose,
+                title = "Chép cả canvas mỗi nét",
+                formula = "S_canvas = 2048 × 2048 × 4 B = 16 384 KB\n" +
+                    "RAM(N) = 16 MiB × N          → O(N)\n" +
+                    "N_max = ⌊ ${report.availableHeapForHistoryMb} MB / 16 MB ⌋ = ${report.naive.maxUndoInRamSteps} bước",
+                explanation = "Mỗi nét tạo một bản sao bitmap đầy đủ trong RAM nên ngân sách ${report.availableHeapForHistoryMb} MB chỉ đủ cho ${report.naive.maxUndoInRamSteps} bước."
             )
-            Text(
-                text = modeTitle,
-                color = Color(0xFFF2EEE7),
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
+            val alphaPct = (report.dirtyRect.avgStepSizeKb / 16384.0) * 100.0
+            Formula(
+                tag = "Dirty rect", color = AmberGold,
+                title = "Chỉ lưu vùng bao quanh nét",
+                formula = "α = S_dirty / S_canvas = ${String.format(Locale.US, "%.2f%%", alphaPct)}\n" +
+                    "S_dirty = ${String.format(Locale.US, "%.1f", report.dirtyRect.avgStepSizeKb)} KB / bước\n" +
+                    "N_max = ⌊ ${report.availableHeapForHistoryMb} × 1024 KB / ${String.format(Locale.US, "%.1f", report.dirtyRect.avgStepSizeKb.coerceAtLeast(1.0))} KB ⌋ = ${report.dirtyRect.maxUndoInRamSteps} bước",
+                explanation = "Mỗi bước nhỏ hơn nhiều, nhưng dữ liệu vẫn nằm trong RAM chưa nén nên vẫn tăng tuyến tính khi vẽ nhiều nét lớn."
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = undoCountText,
-                color = color,
-                fontSize = 13.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = detailText,
-                color = Color(0xFF9A948A),
-                fontSize = 8.5.sp,
-                lineHeight = 12.sp,
-                textAlign = TextAlign.Center
+            Formula(
+                tag = "Tiered", color = RadiantMint,
+                title = "Hot · Warm · Cold, RAM giữ cố định",
+                formula = "RAM(N) = Hot + Warm ≤ B_Hot + B_Warm     → O(1)\n" +
+                    "r = RawEquivalent / TotalActual = ${String.format(Locale.US, "%.2f", t.compressionRatio)}x\n" +
+                    "S_tiered = ${String.format(Locale.US, "%.1f", t.avgStepSizeKb)} KB / bước\n" +
+                    "N_max = N_RAM + ⌊ ${report.coldStorageBudgetMb} × 1024 KB / S_tiered ⌋ = ${String.format(Locale.US, "%,d", t.maxUndoWithDiskSteps)} bước",
+                explanation = "Nét mới nhất ở Hot (bitmap) để hoàn tác tức thì. Vượt ngân sách Hot thì nén sang Warm, rồi xuống Cold là file trên đĩa. " +
+                    "Khi hoàn tác liên tục, bộ nạp trước tự tính độ sâu từ nhịp Undo, tốc độ đọc đĩa và RAM Warm còn trống."
             )
         }
     }
 }
 
+// ------------------------------------------------------------------------------------------------ pieces
+
 @Composable
-private fun MetricBarRow(
-    label: String,
-    valueText: String,
-    fraction: Float,
-    color: Color
-) {
-    val safeFrac = fraction.coerceIn(0.01f, 1.0f)
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                color = Color(0xFFCFC9BF),
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = valueText,
-                color = color,
-                fontSize = 10.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold
-            )
+private fun Section(number: String, title: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(number, color = Muted, fontSize = 13.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(22.dp))
+            Text(title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(7.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF34312D))
-        ) {
-            if (fraction > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(safeFrac)
-                        .height(7.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(color)
-                )
-            }
-        }
+        content()
     }
 }
 
 @Composable
-private fun MathFormulaCard(
-    stepBadge: String,
-    title: String,
-    formula: String,
-    explanation: String,
-    accentColor: Color
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF1B1A18),
-        border = BorderStroke(1.dp, Color(0xFF3A3733)),
-        modifier = Modifier.fillMaxWidth()
+private fun TableHeader(a: String, b: String, c: String) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        Text(a, color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1.5f))
+        Text(b, color = Muted, fontSize = 11.sp, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text(c, color = Muted, fontSize = 11.sp, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun CapacityRow(name: String, note: String, color: Color, perStep: String, steps: String) {
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.padding(11.dp)) {
-            Text(
-                text = stepBadge,
-                color = accentColor,
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = title,
-                color = Color(0xFFF2EEE7),
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = Color(0xFF171614),
-                border = BorderStroke(1.dp, Color(0xFF2A2825)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = formula,
-                    color = Color(0xFFE4DFD6),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 14.5.sp,
-                    modifier = Modifier.padding(8.dp)
-                )
+        Row(Modifier.weight(1.5f).height(IntrinsicSize.Min)) {
+            Box(Modifier.width(3.dp).fillMaxHeight().background(color))
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(name, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(note, color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
             }
-            Spacer(modifier = Modifier.height(6.dp))
+        }
+        Text(perStep, color = Body, fontSize = 13.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text(steps, color = Ink, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun Group(title: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(title, color = Body, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+        content()
+    }
+}
+
+/** One measurement: name and value on a line, a plain thin bar under it, the detail in small type. */
+@Composable
+private fun Bar(name: String, detail: String, value: String, fraction: Double, color: Color) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(name, color = Ink, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text(value, color = color, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+        Box(Modifier.fillMaxWidth().height(4.dp).background(Track)) {
+            Box(Modifier.fillMaxWidth(fraction.toFloat().coerceIn(0.01f, 1f)).height(4.dp).background(color))
+        }
+        Text(detail, color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
+    }
+}
+
+@Composable
+private fun Formula(tag: String, color: Color, title: String, formula: String, explanation: String) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(color))
+        Spacer(Modifier.width(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column {
+                Text(tag, color = color, fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
+                Text(title, color = Ink, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+            }
             Text(
-                text = explanation,
-                color = Color(0xFF9A948A),
-                fontSize = 10.5.sp,
-                lineHeight = 15.sp
+                formula,
+                color = Ink, fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 16.sp,
+                modifier = Modifier.fillMaxWidth().background(Well).padding(10.dp)
             )
+            Text(explanation, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
         }
     }
 }
