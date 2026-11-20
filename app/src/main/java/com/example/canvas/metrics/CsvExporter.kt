@@ -13,7 +13,7 @@ object CsvExporter {
         "timestamp_ms,elapsed_ms,java_heap_mb,native_heap_mb,pss_mb,gc_count,hot_mb,warm_mb,cold_mb,steps"
 
     private const val SUMMARY_HEADER =
-        "scenario,mode,seed,status,completed_steps,peak_java_mb,peak_native_mb,peak_pss_mb,peak_total_mb,gc_delta,duration_ms,avg_step_ms,p50_step_ms,p95_step_ms,error"
+        "scenario,mode,seed,status,completed_steps,peak_java_mb,peak_native_mb,peak_pss_mb,peak_total_mb,gc_delta,duration_ms,avg_step_ms,p50_step_ms,p95_step_ms,p99_step_ms,p100_step_ms,error"
 
     /**
      * Converts a list of [MemorySnapshot] into a CSV string.
@@ -65,7 +65,7 @@ object CsvExporter {
         sb.append(
             String.format(
                 Locale.US,
-                "%s,%s,%d,%s,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%.2f,%.2f,%.2f,%s\n",
+                "%s,%s,%d,%s,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
                 scenarioName,
                 modeName,
                 seed,
@@ -80,6 +80,8 @@ object CsvExporter {
                 collector.averageLatencyMs(),
                 collector.percentileLatencyMs(50.0),
                 collector.percentileLatencyMs(95.0),
+                collector.percentileLatencyMs(99.0),
+                collector.maxLatencyMs(),
                 escapedError
             )
         )

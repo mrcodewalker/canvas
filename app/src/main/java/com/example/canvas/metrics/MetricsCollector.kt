@@ -190,6 +190,9 @@ class MetricsCollector {
         return sorted[index.coerceIn(0, sorted.size - 1)].toDouble()
     }
 
+    /** Worst-case latency (p100 / max) observed across all recorded steps. */
+    fun maxLatencyMs(): Double = (stepLatenciesMs.maxOrNull() ?: 0L).toDouble()
+
     private fun readCurrentGcCount(): Long {
         return try {
             val countStr = android.os.Debug.getRuntimeStat("art.gc.gc-count")

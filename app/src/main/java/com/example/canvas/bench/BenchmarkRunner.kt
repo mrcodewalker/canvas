@@ -39,7 +39,7 @@ class BenchmarkRunner(
         val src = liveCanvas ?: return null
         return try {
             val scale = maxSide.toFloat() / maxOf(src.width, src.height)
-            Bitmap.createScaledBitmap(src, (src.width * scale).toInt().coerceAtLeast(1), (src.height * scale).toInt().coerceAtLeast(1), true)
+            Bitmap.createScaledBitmap(src, (src.width * scale).toInt().coerceAtLeast(1), (src.height * scale).toInt().coerceAtLeast(1), false)
         } catch (_: Throwable) {
             null // recycled or out of memory: skip this frame
         }

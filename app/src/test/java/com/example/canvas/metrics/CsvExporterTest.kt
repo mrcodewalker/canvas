@@ -81,6 +81,7 @@ class CsvExporterTest {
         val lines = csv.trim().split("\n")
         assertEquals(2, lines.size)
         assertTrue(lines[0].startsWith("scenario,mode,seed,status,completed_steps"))
+        assertTrue(lines[0].contains("p50_step_ms,p95_step_ms,p99_step_ms,p100_step_ms"))
         assertTrue(lines[1].contains("E2_DRAW_AND_UNDO_ALL,NAIVE,42,SUCCESS,2"))
     }
 
