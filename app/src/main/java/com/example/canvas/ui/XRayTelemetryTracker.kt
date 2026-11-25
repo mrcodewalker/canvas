@@ -39,7 +39,9 @@ data class XRayCurrentTelemetry(
     val oomCleanerReclaimedKb: Float = 0f,
     val deduplicatedPatches: Int = 0,
     val infiniteUndoEnabled: Boolean = true,
-    val evictionStrategy: String = "SWAM_COST_AWARE"
+    val evictionStrategy: String = "SWAM_COST_AWARE",
+    val demotionWatermark: Float = 0.80f,
+    val idleCoolingEnabled: Boolean = true
 )
 
 /**
@@ -156,7 +158,9 @@ class XRayTelemetryTracker(
             oomCleanerReclaimedKb = stats.oomCleanerReclaimedBytes / 1024f,
             deduplicatedPatches = stats.deduplicatedPatches,
             infiniteUndoEnabled = stats.infiniteUndoEnabled,
-            evictionStrategy = stats.evictionStrategy
+            evictionStrategy = stats.evictionStrategy,
+            demotionWatermark = stats.demotionWatermark,
+            idleCoolingEnabled = stats.idleCoolingEnabled
         )
     }
 

@@ -166,9 +166,7 @@ class Prefetcher(
         }
         for (p in list) {
             if (p.state != PatchState.HOT) {
-                val bmp = p.bitmap
-                if (bmp != null && !bmp.isRecycled) bmp.recycle()
-                p.bitmap = null
+                p.freePixels()
             }
         }
     }

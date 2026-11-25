@@ -70,12 +70,15 @@ fun SwamPaperSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var tab by remember { mutableIntStateOf(0) }
 
-    val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024f * 1024f)).coerceAtLeast(64f)
+    val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024f * 1024f)).coerceAtLeast(128f)
     var hotMb by remember(currentConfig.hotBudgetBytes) {
-        mutableFloatStateOf((currentConfig.hotBudgetBytes / (1024f * 1024f)).coerceIn(1f, maxHeapMb * 0.4f))
+        mutableFloatStateOf((currentConfig.hotBudgetBytes / (1024f * 1024f)).coerceIn(4f, maxHeapMb * 0.45f))
     }
     var warmMb by remember(currentConfig.warmBudgetBytes) {
-        mutableFloatStateOf((currentConfig.warmBudgetBytes / (1024f * 1024f)).coerceIn(0.25f, maxHeapMb * 0.4f))
+        mutableFloatStateOf((currentConfig.warmBudgetBytes / (1024f * 1024f)).coerceIn(2f, maxHeapMb * 0.35f))
+    }
+    var watermarkPct by remember(currentConfig.demotionWatermark) {
+        mutableFloatStateOf((currentConfig.demotionWatermark * 100.0).toFloat().coerceIn(50f, 100f))
     }
     var prefetch by remember(prefetchEnabled) { mutableStateOf(prefetchEnabled) }
 
@@ -135,6 +138,37 @@ fun SwamPaperSheet(
                         "Theo độ dài chuỗi undo và độ nặng nét vẽ của bạn",
                         currentConfig.autoBudgets
                     ) { push(currentConfig.copy(autoBudgets = !currentConfig.autoBudgets)) }
+                    LabSwitchRow(
+                        "Tự nguội theo thời gian (Idle Cooling)",
+                        "Khi ngừng vẽ vài giây, các nét nguội dần Hot → Warm → Cold về 0 MB RAM",
+                        currentConfig.idleCoolingEnabled
+                    ) { push(currentConfig.copy(idleCoolingEnabled = !currentConfig.idleCoolingEnabled)) }
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(NeonCyan))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Ngưỡng đẩy xuống sớm (Watermark)", color = InkText, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Text("${watermarkPct.toInt()}%", color = NeonCyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Text(
+                            "Đẩy xuống ngay khi chạm ${watermarkPct.toInt()}% (thay vì chờ đầy 100%); nét quá lớn tự đẩy dần.",
+                            color = MutedText,
+                            fontSize = 12.sp
+                        )
+                        Slider(
+                            value = watermarkPct,
+                            onValueChange = {
+                                watermarkPct = it
+                                push(currentConfig.copy(demotionWatermark = (it / 100f).toDouble()))
+                            },
+                            valueRange = 50f..100f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = InkText,
+                                activeTrackColor = NeonCyan,
+                                inactiveTrackColor = CyberCardBorder
+                            )
+                        )
+                    }
 
                     LabSection("Khi Cold đầy")
                     for (policy in ColdFullPolicy.values()) {
@@ -150,11 +184,11 @@ fun SwamPaperSheet(
                         color = MutedText, fontSize = 12.5.sp,
                         modifier = Modifier.padding(horizontal = 20.dp)
                     )
-                    BudgetSlider("Hot (ảnh gốc)", hotMb, 1f, maxHeapMb * 0.4f, CoralRose, !currentConfig.autoBudgets) {
+                    BudgetSlider("Hot (ảnh gốc)", hotMb, 4f, maxHeapMb * 0.45f, CoralRose, !currentConfig.autoBudgets) {
                         hotMb = it
                         push(currentConfig.copy(hotBudgetBytes = (it * 1024L * 1024L).toLong()))
                     }
-                    BudgetSlider("Warm (nén trong RAM)", warmMb, 0.25f, maxHeapMb * 0.4f, AmberGold, !currentConfig.autoBudgets) {
+                    BudgetSlider("Warm (nén trong RAM)", warmMb, 2f, maxHeapMb * 0.35f, AmberGold, !currentConfig.autoBudgets) {
                         warmMb = it
                         push(currentConfig.copy(warmBudgetBytes = (it * 1024L * 1024L).toLong()))
                     }

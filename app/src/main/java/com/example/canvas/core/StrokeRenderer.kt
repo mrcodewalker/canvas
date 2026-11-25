@@ -1,23 +1,17 @@
 package com.example.canvas.core
 
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 
 /**
- * Handles rendering strokes onto an Android Canvas with smooth Bézier curves.
+ * Handles rendering strokes onto an Android Canvas with smooth Bézier curves
+ * and multi-style studio brushes (solid ink/marker and feathered soft airbrush).
  */
 class StrokeRenderer {
 
     private val strokePaint = Paint().apply {
-        isAntiAlias = true
-        isDither = true
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
-
-    private val liveAuraPaint = Paint().apply {
         isAntiAlias = true
         isDither = true
         style = Paint.Style.STROKE
@@ -31,12 +25,6 @@ class StrokeRenderer {
         style = Paint.Style.FILL
     }
 
-    private val cursorRingPaint = Paint().apply {
-        isAntiAlias = true
-        style = Paint.Style.STROKE
-        strokeWidth = 3.5f
-    }
-
     /**
      * Renders a [Stroke] onto the specified [Canvas] (used for committing to backing bitmap).
      */
@@ -45,36 +33,72 @@ class StrokeRenderer {
         if (points.isEmpty()) return
 
         if (points.size == 1) {
-            val pt = points[0]
-            pointPaint.color = stroke.color
-            canvas.drawCircle(pt.x, pt.y, stroke.width / 2f, pointPaint)
+            renderPoint(canvas, points[0], stroke)
             return
         }
 
-        strokePaint.color = stroke.color
-        strokePaint.strokeWidth = stroke.width
-
         val path = buildSmoothPath(points)
-        canvas.drawPath(path, strokePaint)
+        drawStyledPath(canvas, path, stroke)
     }
 
     /**
-     * Renders the stroke being drawn exactly as it will be committed (what you see is what is saved):
-     * no glow, no cursor decoration.
+     * Renders the stroke being drawn exactly as it will be committed (what you see is what is saved).
      */
     fun renderLiveStroke(canvas: Canvas, stroke: Stroke, @Suppress("UNUSED_PARAMETER") unused: Int = 0) {
         val points = stroke.points
         if (points.isEmpty()) return
 
         if (points.size == 1) {
-            val pt = points[0]
-            pointPaint.color = stroke.color
-            canvas.drawCircle(pt.x, pt.y, stroke.width / 2f, pointPaint)
+            renderPoint(canvas, points[0], stroke)
             return
         }
-        strokePaint.color = stroke.color
-        strokePaint.strokeWidth = stroke.width
-        canvas.drawPath(buildLivePath(stroke), strokePaint)
+        drawStyledPath(canvas, buildLivePath(stroke), stroke)
+    }
+
+    private fun renderPoint(canvas: Canvas, pt: StrokePoint, stroke: Stroke) {
+        when (stroke.style) {
+            BrushStyle.SOLID -> {
+                pointPaint.color = stroke.color
+                canvas.drawCircle(pt.x, pt.y, stroke.width / 2f, pointPaint)
+            }
+            BrushStyle.SOFT -> {
+                // Concentric feathered circles strictly inside stroke.width / 2f
+                val baseAlpha = Color.alpha(stroke.color)
+                val r = Color.red(stroke.color)
+                val g = Color.green(stroke.color)
+                val b = Color.blue(stroke.color)
+                val layers = floatArrayOf(1.0f, 0.72f, 0.44f, 0.22f)
+                val alphas = floatArrayOf(0.16f, 0.22f, 0.30f, 0.42f)
+                for (i in layers.indices) {
+                    pointPaint.color = Color.argb((baseAlpha * alphas[i]).toInt().coerceIn(1, 255), r, g, b)
+                    canvas.drawCircle(pt.x, pt.y, (stroke.width / 2f) * layers[i], pointPaint)
+                }
+            }
+        }
+    }
+
+    private fun drawStyledPath(canvas: Canvas, path: Path, stroke: Stroke) {
+        when (stroke.style) {
+            BrushStyle.SOLID -> {
+                strokePaint.color = stroke.color
+                strokePaint.strokeWidth = stroke.width
+                canvas.drawPath(path, strokePaint)
+            }
+            BrushStyle.SOFT -> {
+                // Multi-pass soft brush strictly bounded by stroke.width so dirty tiles are 100% lossless
+                val baseAlpha = Color.alpha(stroke.color)
+                val r = Color.red(stroke.color)
+                val g = Color.green(stroke.color)
+                val b = Color.blue(stroke.color)
+                val widthFracs = floatArrayOf(1.0f, 0.72f, 0.46f, 0.24f)
+                val alphaFracs = floatArrayOf(0.14f, 0.20f, 0.28f, 0.40f)
+                for (i in widthFracs.indices) {
+                    strokePaint.color = Color.argb((baseAlpha * alphaFracs[i]).toInt().coerceIn(1, 255), r, g, b)
+                    strokePaint.strokeWidth = (stroke.width * widthFracs[i]).coerceAtLeast(1f)
+                    canvas.drawPath(path, strokePaint)
+                }
+            }
+        }
     }
 
     // The in-flight stroke only ever grows by appending points, so its smooth path is extended, not rebuilt:

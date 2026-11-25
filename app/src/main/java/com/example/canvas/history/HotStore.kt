@@ -33,6 +33,8 @@ class HotStore {
         return removed
     }
 
+    fun contains(patch: Patch): Boolean = queue.contains(patch)
+
     fun peekOldest(): Patch? = queue.firstOrNull()
 
     fun getAll(): List<Patch> = queue.toList()

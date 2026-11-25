@@ -50,7 +50,9 @@ data class Patch(
     /** What was drawn by this step; lets redo replay it on a changed canvas. Null = pixels only. */
     val op: StrokeOp? = null,
     /** 1-based number of the stroke this patch belongs to (for display); 0 = unknown. */
-    @Volatile var strokeNo: Int = 0
+    @Volatile var strokeNo: Int = 0,
+    /** Timestamp (epoch ms) when this patch entered Hot RAM, used for time-based thermal cooling. */
+    @Volatile var createdAtMs: Long = System.currentTimeMillis()
 ) {
     /** Deflate level the Warm bytes of this patch were compressed with (0 = not compressed yet). */
     @Volatile var warmLevel: Int = 0
@@ -100,11 +102,44 @@ data class Patch(
     }
 
     /**
+     * Atomically detaches and returns [bitmap] if valid and unrecycled, clearing [bitmap] to null
+     * so no other thread can access or recycle it twice.
+     */
+    @Synchronized
+    fun takeBitmap(): Bitmap? {
+        val b = bitmap
+        bitmap = null
+        return if (b != null && !b.isRecycled) b else null
+    }
+
+    /**
+     * Copies raw ARGB_8888 pixel bytes from [bitmap] into a [BufferPool] array while holding this
+     * patch's monitor, guaranteeing native `Bitmap_copyPixelsToBuffer` never races with [recycle].
+     */
+    @Synchronized
+    fun copyPixelsToBufferPool(): Pair<ByteArray, Int>? {
+        val b = bitmap
+        if (b == null || b.isRecycled) return null
+        val byteCount = b.byteCount
+        if (byteCount <= 0) return null
+        val raw = BufferPool.acquire(byteCount)
+        return try {
+            b.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(raw, 0, byteCount))
+            raw to byteCount
+        } catch (_: Throwable) {
+            BufferPool.release(raw)
+            null
+        }
+    }
+
+    /**
      * Applies this patch onto the target canvas using [PorterDuff.Mode.SRC]
      * to strictly overwrite pixels without alpha blending.
      */
+    @Synchronized
     fun applyTo(targetCanvas: Canvas) {
         val bmp = bitmap ?: return
+        if (bmp.isRecycled) return
         targetCanvas.drawBitmap(bmp, rect.left.toFloat(), rect.top.toFloat(), srcPaint)
     }
 
@@ -112,25 +147,30 @@ data class Patch(
      * Gives the pixels back to the system but keeps [reuse]: for a redo step whose stroke can be replayed, the
      * pixels are only a cache, while the encoding (small) still describes the pixels an undo will need again.
      */
+    @Synchronized
     fun freePixels() {
+        val b = bitmap
+        bitmap = null
         try {
-            if (bitmap != null && !bitmap!!.isRecycled) {
-                bitmap!!.recycle()
+            if (b != null && !b.isRecycled) {
+                b.recycle()
             }
         } catch (_: Throwable) {}
-        bitmap = null
     }
 
     /**
      * Safely recycles the bitmap reference if it exists and is not already recycled.
      */
     fun recycle() {
-        try {
-            if (bitmap != null && !bitmap!!.isRecycled) {
-                bitmap!!.recycle()
-            }
-        } catch (_: Throwable) {}
-        bitmap = null
+        synchronized(this) {
+            val b = bitmap
+            bitmap = null
+            try {
+                if (b != null && !b.isRecycled) {
+                    b.recycle()
+                }
+            } catch (_: Throwable) {}
+        }
         // pixels freed: the encoding can no longer be trusted to match them, and its file is of no use
         reuse?.filePath?.let { try { java.io.File(it).delete() } catch (_: Throwable) {} }
         reuse = null

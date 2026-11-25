@@ -141,6 +141,26 @@ object PatchCodec {
         }
     }
 
+    /** Encodes [byteCount] bytes of [raw] adaptively without touching a native [Bitmap] on worker threads. */
+    fun compressRawAdaptive(
+        raw: ByteArray,
+        byteCount: Int,
+        level: Int,
+        selector: CodecSelector,
+        priceNsPerByte: Double?
+    ): CompressedPatch = selector.encode(raw, byteCount, level, priceNsPerByte).patch
+
+    /** Compresses [byteCount] bytes of [raw] at every candidate level in [levels]. */
+    fun compressRawAtLevels(raw: ByteArray, byteCount: Int, levels: List<Int>): Map<Int, Pair<CompressedPatch, Long>> {
+        val out = LinkedHashMap<Int, Pair<CompressedPatch, Long>>()
+        for (level in levels) {
+            val t0 = System.nanoTime()
+            val c = compress(raw, level, byteCount)
+            out[level] = c to (System.nanoTime() - t0)
+        }
+        return out
+    }
+
     /** Like [compressBitmap], but [selector] picks the format (solid / run-length / delta / plain Deflate). */
     fun compressBitmapAdaptive(
         bitmap: Bitmap,
@@ -148,10 +168,14 @@ object PatchCodec {
         selector: CodecSelector,
         priceNsPerByte: Double?
     ): CompressedPatch {
-        val byteCount = bitmap.byteCount
-        val raw = BufferPool.acquire(byteCount)
+        val (raw, byteCount) = synchronized(bitmap) {
+            if (bitmap.isRecycled) return CompressedPatch(ByteArray(0), 0, 0L)
+            val count = bitmap.byteCount
+            val buf = BufferPool.acquire(count)
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(buf, 0, count))
+            buf to count
+        }
         try {
-            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(raw, 0, byteCount))
             return selector.encode(raw, byteCount, level, priceNsPerByte).patch
         } finally {
             BufferPool.release(raw)
@@ -165,10 +189,14 @@ object PatchCodec {
         bitmap: Bitmap,
         level: Int = DEFAULT_COMPRESSION_LEVEL
     ): CompressedPatch {
-        val byteCount = bitmap.byteCount
-        val raw = BufferPool.acquire(byteCount)
+        val (raw, byteCount) = synchronized(bitmap) {
+            if (bitmap.isRecycled) return CompressedPatch(ByteArray(0), 0, 0L)
+            val count = bitmap.byteCount
+            val buf = BufferPool.acquire(count)
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(buf, 0, count))
+            buf to count
+        }
         try {
-            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(raw, 0, byteCount))
             return compress(raw, level, byteCount)
         } finally {
             BufferPool.release(raw)
@@ -180,17 +208,15 @@ object PatchCodec {
      * compare levels. Returns, per level, the result and the nanoseconds spent compressing (CRC included).
      */
     fun compressBitmapAtLevels(bitmap: Bitmap, levels: List<Int>): Map<Int, Pair<CompressedPatch, Long>> {
-        val byteCount = bitmap.byteCount
-        val raw = BufferPool.acquire(byteCount)
+        val (raw, byteCount) = synchronized(bitmap) {
+            if (bitmap.isRecycled) return levels.associateWith { CompressedPatch(ByteArray(0), 0, 0L) to 0L }
+            val count = bitmap.byteCount
+            val buf = BufferPool.acquire(count)
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(buf, 0, count))
+            buf to count
+        }
         try {
-            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(raw, 0, byteCount))
-            val out = LinkedHashMap<Int, Pair<CompressedPatch, Long>>()
-            for (level in levels) {
-                val t0 = System.nanoTime()
-                val c = compress(raw, level, byteCount)
-                out[level] = c to (System.nanoTime() - t0)
-            }
-            return out
+            return compressRawAtLevels(raw, byteCount, levels)
         } finally {
             BufferPool.release(raw)
         }

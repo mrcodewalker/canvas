@@ -11,15 +11,22 @@ package com.example.canvas.core
 class StrokeOp private constructor(
     private val color: Int,
     private val width: Float,
+    private val styleCode: Int,
     private val xy: FloatArray?,
     val fillColor: Int?
 ) {
     constructor(stroke: Stroke? = null, fillColor: Int? = null) : this(
         stroke?.color ?: 0,
         stroke?.width ?: 0f,
-        stroke?.let { s -> FloatArray(s.points.size * 2).also { a ->
-            s.points.forEachIndexed { i, p -> a[2 * i] = p.x; a[2 * i + 1] = p.y }
-        } },
+        stroke?.style?.code ?: 0,
+        stroke?.let { s ->
+            FloatArray(s.points.size * 2).also { a ->
+                s.points.forEachIndexed { i, p ->
+                    a[2 * i] = p.x
+                    a[2 * i + 1] = p.y
+                }
+            }
+        },
         fillColor
     )
 
@@ -29,9 +36,9 @@ class StrokeOp private constructor(
             val a = xy ?: return null
             val pts = ArrayList<StrokePoint>(a.size / 2)
             for (i in 0 until a.size / 2) pts.add(StrokePoint(a[2 * i], a[2 * i + 1]))
-            return Stroke(color, width, pts)
+            return Stroke(color, width, pts, BrushStyle.fromCode(styleCode))
         }
 
     /** RAM taken by the recorded points. */
-    val approxBytes: Long get() = (xy?.size ?: 0) * 4L + 24L
+    val approxBytes: Long get() = (xy?.size ?: 0) * 4L + 28L
 }

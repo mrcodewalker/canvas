@@ -6,150 +6,106 @@ import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.AllInclusive
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FastRewind
-import androidx.compose.material.icons.filled.FormatColorFill
-import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import com.example.canvas.artwork.ArtworkRepository
+import com.example.canvas.artwork.SavedArtwork
 import com.example.canvas.bench.DemoScenarioRunner
 import com.example.canvas.bench.DemoState
 import com.example.canvas.bench.ScriptedDrawer
 import com.example.canvas.bench.StrokeType
+import com.example.canvas.core.BrushStyle
 import com.example.canvas.history.DirtyRectHistory
 import com.example.canvas.history.HistoryManager
 import com.example.canvas.history.HistoryMode
 import com.example.canvas.history.NaiveHistory
+import com.example.canvas.history.TierCell
 import com.example.canvas.history.TierConfig
+import com.example.canvas.history.TierEvent
 import com.example.canvas.history.TieredHistory
 import com.example.canvas.metrics.MemorySampler
-import com.example.canvas.ui.compose.AuroraGlassCard
+import com.example.canvas.ui.compose.ArtworkGallerySheet
 import com.example.canvas.ui.compose.ChronosXRayHud
-import com.example.canvas.ui.compose.M3ExpressiveModeSelector
-import com.example.canvas.ui.compose.ModeEvaluationMetrics
-import com.example.canvas.ui.compose.PulsingAuroraButton
-import com.example.canvas.ui.compose.SwamComparisonReport
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.mutableStateListOf
-import com.example.canvas.history.TierCell
-import com.example.canvas.history.TierEvent
-import com.example.canvas.ui.compose.TierTrackerPanel
-import com.example.canvas.ui.theme.CyberSurface
-import com.example.canvas.ui.theme.InkText
-import com.example.canvas.ui.compose.LabSheet
-import com.example.canvas.ui.compose.MemoryPill
 import com.example.canvas.ui.compose.DemoCharts
 import com.example.canvas.ui.compose.DemoStageHeader
 import com.example.canvas.ui.compose.DemoStageState
+import com.example.canvas.ui.compose.ExitStudioDialog
+import com.example.canvas.ui.compose.LabSheet
+import com.example.canvas.ui.compose.MemoryPill
+import com.example.canvas.ui.compose.ModeEvaluationMetrics
+import com.example.canvas.ui.compose.SaveArtworkDialog
 import com.example.canvas.ui.compose.StatusStrip
 import com.example.canvas.ui.compose.StudioTopBar
-import com.example.canvas.ui.compose.ToolDock
-import com.example.canvas.ui.theme.FaintText
-import com.example.canvas.ui.theme.MutedText
+import com.example.canvas.ui.compose.SwamComparisonReport
 import com.example.canvas.ui.compose.SwamDemoReportModal
 import com.example.canvas.ui.compose.SwamPaperSheet
+import com.example.canvas.ui.compose.TierTrackerPanel
+import com.example.canvas.ui.compose.ToolDock
 import com.example.canvas.ui.theme.AmberGold
 import com.example.canvas.ui.theme.ChronosCanvasTheme
 import com.example.canvas.ui.theme.CoralRose
 import com.example.canvas.ui.theme.CyberObsidian
-import com.example.canvas.ui.theme.ElectricIndigo
-import com.example.canvas.ui.theme.EmeraldGreen
-import com.example.canvas.ui.theme.NeonCyan
-import com.example.canvas.ui.theme.RadiantMint
-import com.example.canvas.ui.theme.SkyBlue
+import com.example.canvas.ui.theme.CyberSurface
+import com.example.canvas.ui.theme.InkText
+import com.example.canvas.ui.theme.MutedText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
-import kotlin.math.max
 
 enum class StudioBrushTool(val label: String) {
     INK_PEN("Bút mực"),
     MARKER("Bút dạ"),
+    SOFT_BRUSH("Cọ mềm"),
     ERASER("Tẩy")
 }
 
 class MainActivity : ComponentActivity() {
 
     private var drawingViewRef: DrawingView? = null
+    private lateinit var artworkRepository: ArtworkRepository
+    private var initialRestoreDone = false
+    private var openingInternalActivity = false
+
     private val xRayTelemetryTracker = XRayTelemetryTracker(windowDurationMs = 60_000L)
     private var memorySampler: MemorySampler? = null
     private var demoRunner: DemoScenarioRunner? = null
@@ -167,6 +123,16 @@ class MainActivity : ComponentActivity() {
     private var isXRayMinimized by mutableStateOf(true)
     private var showSwamSheet by mutableStateOf(false)
 
+    // Artwork Studio & Persistence States
+    private var savedArtworks by mutableStateOf<List<SavedArtwork>>(emptyList())
+    private var activeArtworkId by mutableStateOf<String?>(null)
+    private var activeArtworkTitle by mutableStateOf<String?>(null)
+    private var hasUnsavedChanges by mutableStateOf(false)
+    private var showGallerySheet by mutableStateOf(false)
+    private var showSaveDialog by mutableStateOf(false)
+    private var showExitDialog by mutableStateOf(false)
+    private var finishAfterSave by mutableStateOf(false)
+
     // Tier tracker: what happens to each stroke while drawing
     private var trackerVisible by mutableStateOf(false)
     private val tierEvents = mutableStateListOf<TierEvent>()   // newest first
@@ -176,12 +142,10 @@ class MainActivity : ComponentActivity() {
 
     // Auto 3-Mode Demo & Result Report Modal states
     private var isAutoDemoRunning by mutableStateOf(false)
-    private var autoDemoPhaseTitle by mutableStateOf("")
-    private var autoDemoInstruction by mutableStateOf("")
     private var autoDemoProgress by mutableFloatStateOf(0f)
     private var latestDemoReport by mutableStateOf<SwamComparisonReport?>(null)
     private var demoStage by mutableStateOf(DemoStageState())
-    private var demoRestoreConfig: com.example.canvas.history.TierConfig? = null
+    private var demoRestoreConfig: TierConfig? = null
     private var showDemoReportModal by mutableStateOf(false)
 
     // Burst & OOM Alert States (works across ALL 3 modes: NAIVE, DIRTY_RECT, TIERED)
@@ -192,30 +156,26 @@ class MainActivity : ComponentActivity() {
     private var burstStrokeType by mutableStateOf(StrokeType.LARGE)
     private var oomAlertMessage by mutableStateOf<String?>(null)
 
-    // Canvas & Tool States
+    // Canvas & Graphic Tool States
     private var activeTool by mutableStateOf(StudioBrushTool.INK_PEN)
+    private var selectedShapeMode by mutableStateOf(ShapeDrawMode.FREEHAND)
     private var selectedBaseColor by mutableIntStateOf(AndroidColor.parseColor("#1C1B1A"))
     private var selectedStrokeWidth by mutableFloatStateOf(20f)
+    private var selectedOpacity by mutableFloatStateOf(1.0f)
     private var showDirtyRectBox by mutableStateOf(true)
     private var showPaperGrid by mutableStateOf(false)
     private var currentZoomScale by mutableFloatStateOf(1f)
-    private var lastPatchSummary by mutableStateOf("Chụm hai ngón để thu phóng")
+    private var lastPatchSummary by mutableStateOf("Chụm hai ngón để thu phóng · Nhấn Lưu để lưu tranh")
 
     private var demoState by mutableStateOf(DemoState(isRunning = false))
-    private var currentTierConfig by mutableStateOf(
-        TierConfig(
-            hotBudgetBytes = 4L * 1024 * 1024,
-            warmBudgetBytes = 256L * 1024,
-            infiniteUndo = true,
-            coldMaxSteps = Int.MAX_VALUE,
-            coldMaxBytes = 4L * 1024 * 1024 * 1024
-        )
-    )
+    private var currentTierConfig by mutableStateOf(TieredHistory.studioConfig())
     private var prefetchEnabled by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.canvas.history.MemorySignal.install(this)
+        artworkRepository = ArtworkRepository.create(this)
+        refreshArtworksList()
         enableEdgeToEdge()
 
         setupDemoRunner()
@@ -225,6 +185,14 @@ class MainActivity : ComponentActivity() {
                 PixelProStudioScreen()
             }
         }
+    }
+
+    private fun refreshArtworksList() {
+        val list = artworkRepository.listArtworks()
+        savedArtworks = list
+        val actId = artworkRepository.activeArtworkId
+        activeArtworkId = actId
+        activeArtworkTitle = actId?.let { id -> list.firstOrNull { it.id == id }?.title }
     }
 
     /** Adds an event to the feed; the tiles of one stroke that move together become one line. */
@@ -258,7 +226,7 @@ class MainActivity : ComponentActivity() {
     private fun toggleTracker() {
         trackerVisible = !trackerVisible
         if (trackerVisible) {
-            isXRayMinimized = true          // one panel at a time: the tracker is the detailed view
+            isXRayMinimized = true
             trackerStartMs = System.currentTimeMillis()
             tierEvents.clear()
             tierCells = emptyList()
@@ -271,9 +239,167 @@ class MainActivity : ComponentActivity() {
         isBurstRunning = false
         oomAlertMessage = null
         drawingViewRef?.clearCanvas()
-        lastPatchSummary = "Đã xóa bản vẽ"
+        hasUnsavedChanges = false
+        lastPatchSummary = "Đã xóa bản vẽ và dọn sạch lịch sử"
         tierEvents.clear()
         tierCells = emptyList()
+        refreshTelemetrySnapshot()
+    }
+
+    /**
+     * Captures the 2048x2048 canvas onto disk as a saved artwork and immediately purges all
+     * Undo/Redo RAM & Cold disk cache for that session.
+     */
+    private fun performSaveArtwork(title: String, saveAsNew: Boolean) {
+        val view = drawingViewRef ?: return
+        val snapshot = view.captureCanvasSnapshot()
+        val targetExistingId = if (saveAsNew) null else activeArtworkId
+
+        // Immediately flatten & purge Undo/Redo history cache for this drawing
+        view.flattenAndClearHistory()
+        hasUnsavedChanges = false
+        tierEvents.clear()
+        tierCells = emptyList()
+        refreshTelemetrySnapshot()
+
+        lifecycleScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                try {
+                    artworkRepository.saveArtwork(
+                        bitmap = snapshot,
+                        existingId = targetExistingId,
+                        title = title,
+                        autoCapturedOnExit = false
+                    )
+                } finally {
+                    if (!snapshot.isRecycled) snapshot.recycle()
+                }
+            }
+            refreshArtworksList()
+            lastPatchSummary = "Đã lưu '${saved.title}' · Đã xóa sạch lịch sử Undo/Redo"
+            Toast.makeText(
+                this@MainActivity,
+                "Đã lưu '${saved.title}' và dọn sạch lịch sử Undo/Redo",
+                Toast.LENGTH_SHORT
+            ).show()
+            if (finishAfterSave) {
+                finishAfterSave = false
+                finish()
+            }
+        }
+    }
+
+    private fun openSavedArtwork(art: SavedArtwork) {
+        val view = drawingViewRef ?: return
+        // If current canvas had unsaved strokes, auto-capture it before switching so nothing is lost
+        if (view.hasUnsavedChanges && view.hasDrawnAnyContent) {
+            val snap = view.captureCanvasSnapshot()
+            try {
+                artworkRepository.saveArtwork(
+                    bitmap = snap,
+                    existingId = activeArtworkId,
+                    title = activeArtworkTitle,
+                    autoCapturedOnExit = true
+                )
+            } finally {
+                if (!snap.isRecycled) snap.recycle()
+            }
+        }
+        lifecycleScope.launch {
+            val loaded = withContext(Dispatchers.IO) {
+                artworkRepository.loadArtworkBitmap(art.id)
+            }
+            if (loaded != null) {
+                artworkRepository.activeArtworkId = art.id
+                view.loadArtworkBitmap(loaded)
+                if (!loaded.isRecycled) loaded.recycle()
+                hasUnsavedChanges = false
+                tierEvents.clear()
+                tierCells = emptyList()
+                refreshArtworksList()
+                refreshTelemetrySnapshot()
+                lastPatchSummary = "Đã mở '${art.title}'"
+            } else {
+                Toast.makeText(this@MainActivity, "Không thể đọc tệp ảnh '${art.title}'", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun startNewArtworkCanvas(paperColor: Int = AndroidColor.WHITE) {
+        val view = drawingViewRef ?: return
+        if (view.hasUnsavedChanges && view.hasDrawnAnyContent) {
+            val snap = view.captureCanvasSnapshot()
+            try {
+                artworkRepository.saveArtwork(
+                    bitmap = snap,
+                    existingId = activeArtworkId,
+                    title = activeArtworkTitle,
+                    autoCapturedOnExit = true
+                )
+            } finally {
+                if (!snap.isRecycled) snap.recycle()
+            }
+        }
+        artworkRepository.activeArtworkId = null
+        activeArtworkId = null
+        activeArtworkTitle = null
+        view.startNewCanvas(paperColor)
+        hasUnsavedChanges = false
+        tierEvents.clear()
+        tierCells = emptyList()
+        refreshArtworksList()
+        refreshTelemetrySnapshot()
+        lastPatchSummary = "Đã tạo trang vẽ mới"
+    }
+
+    private fun exportCurrentCanvasPng(customTitle: String? = null) {
+        val view = drawingViewRef ?: return
+        val snap = view.captureCanvasSnapshot()
+        val exportName = customTitle?.takeIf { it.isNotBlank() }
+            ?: activeArtworkTitle
+            ?: artworkRepository.nextDefaultTitle()
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    artworkRepository.exportPngToGallery(this@MainActivity, snap, exportName)
+                } finally {
+                    if (!snap.isRecycled) snap.recycle()
+                }
+            }
+            Toast.makeText(
+                this@MainActivity,
+                if (ok) "Đã xuất PNG vào Pictures/ChronosCanvas" else "Không thể xuất PNG",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    /**
+     * Executed synchronously when exiting/closing the app while drawing:
+     * 1. Captures the final 2048x2048 canvas onto disk as a saved/updated artwork if modified.
+     * 2. Immediately clears all Undo/Redo RAM bitmaps, Warm buffers, and Cold `.chrf` swap files.
+     */
+    private fun captureFinalCanvasAndPurgeUndoCacheOnExit() {
+        val view = drawingViewRef ?: return
+        if (isAutoDemoRunning || isBurstRunning) return
+
+        if (view.hasUnsavedChanges && view.hasDrawnAnyContent) {
+            try {
+                artworkRepository.saveArtwork(
+                    bitmap = view.backingBitmap,
+                    existingId = activeArtworkId,
+                    title = activeArtworkTitle,
+                    autoCapturedOnExit = true
+                )
+            } catch (_: Throwable) {}
+        }
+
+        // Always wipe Undo/Redo RAM & Cold disk cache when leaving/closing the drawing session
+        view.flattenAndClearHistory()
+        hasUnsavedChanges = false
+        tierEvents.clear()
+        tierCells = emptyList()
+        refreshArtworksList()
         refreshTelemetrySnapshot()
     }
 
@@ -284,22 +410,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun computeEffectiveStrokeColor(): Int {
+        val r = AndroidColor.red(selectedBaseColor)
+        val g = AndroidColor.green(selectedBaseColor)
+        val b = AndroidColor.blue(selectedBaseColor)
+        val userAlpha = (selectedOpacity.coerceIn(0.1f, 1.0f) * 255f).toInt()
         return when (activeTool) {
-            StudioBrushTool.INK_PEN -> selectedBaseColor
-            StudioBrushTool.MARKER -> {
-                val r = AndroidColor.red(selectedBaseColor)
-                val g = AndroidColor.green(selectedBaseColor)
-                val b = AndroidColor.blue(selectedBaseColor)
-                AndroidColor.argb(115, r, g, b)
-            }
-            StudioBrushTool.ERASER -> AndroidColor.WHITE
+            StudioBrushTool.INK_PEN -> AndroidColor.argb(userAlpha, r, g, b)
+            StudioBrushTool.MARKER -> AndroidColor.argb((userAlpha * 0.46f).toInt().coerceIn(12, 255), r, g, b)
+            StudioBrushTool.SOFT_BRUSH -> AndroidColor.argb(userAlpha, r, g, b)
+            StudioBrushTool.ERASER -> drawingViewRef?.paperBackgroundColor ?: AndroidColor.WHITE
         }
+    }
+
+    private fun computeEffectiveBrushStyle(): BrushStyle = when (activeTool) {
+        StudioBrushTool.SOFT_BRUSH -> BrushStyle.SOFT
+        else -> BrushStyle.SOLID
     }
 
     private fun syncBrushToView() {
         val view = drawingViewRef ?: return
         view.strokeColor = computeEffectiveStrokeColor()
         view.strokeWidth = selectedStrokeWidth
+        view.brushStyle = computeEffectiveBrushStyle()
+        view.shapeMode = if (activeTool == StudioBrushTool.ERASER) ShapeDrawMode.FREEHAND else selectedShapeMode
         view.showDirtyRectOverlay = showDirtyRectBox
         view.showPaperGrid = showPaperGrid
     }
@@ -309,6 +442,9 @@ class MainActivity : ComponentActivity() {
         drawingViewRef = view
         syncBrushToView()
 
+        view.onCanvasModifiedChanged = { modified ->
+            runOnUiThread { hasUnsavedChanges = modified }
+        }
         view.onZoomChanged = { zoom ->
             currentZoomScale = zoom
         }
@@ -316,11 +452,12 @@ class MainActivity : ComponentActivity() {
             val w = patch.rect.width()
             val h = patch.rect.height()
             val kb = patch.sizeBytes / 1024
-            // Real saved area (sum of dirty tiles, 4 bytes/px) versus the stroke's bounding box
             val coveredPx = patch.sizeBytes / 4
             val boxPx = (w.toLong() * h).coerceAtLeast(1L)
             val pct = if (currentMode == HistoryMode.NAIVE) 100L else (coveredPx * 100L / boxPx).coerceAtMost(100L)
-            lastPatchSummary = "Bước ${view.historyManager.stats().totalSteps} · lưu ${coveredPx / 1000}k px, ${pct}% khung bao · ${kb} KB"
+            val regionCount = view.lastDirtyRegions.size.coerceAtLeast(1)
+            lastPatchSummary =
+                "Bước ${view.historyManager.stats().totalSteps} · $regionCount ô (${pct}% khung bao) · ${kb} KB"
             refreshTelemetrySnapshot()
         }
         view.onOomCaught = { msg ->
@@ -334,6 +471,27 @@ class MainActivity : ComponentActivity() {
 
         switchMode(currentMode)
         initSampler(view)
+
+        // Restore the last saved / auto-captured artwork onto canvas on fresh launch (with clean 0-step history)
+        if (!initialRestoreDone) {
+            initialRestoreDone = true
+            val restoreId = artworkRepository.activeArtworkId ?: savedArtworks.firstOrNull()?.id
+            if (restoreId != null) {
+                lifecycleScope.launch {
+                    val bmp = withContext(Dispatchers.IO) {
+                        artworkRepository.loadArtworkBitmap(restoreId)
+                    }
+                    if (bmp != null) {
+                        artworkRepository.activeArtworkId = restoreId
+                        view.loadArtworkBitmap(bmp)
+                        if (!bmp.isRecycled) bmp.recycle()
+                        refreshArtworksList()
+                        lastPatchSummary = "Đã khôi phục bản vẽ cuối '${activeArtworkTitle ?: ""}'"
+                        refreshTelemetrySnapshot()
+                    }
+                }
+            }
+        }
     }
 
     private fun initSampler(view: DrawingView) {
@@ -370,7 +528,7 @@ class MainActivity : ComponentActivity() {
         oomAlertMessage = null
         currentMode = mode
         val view = drawingViewRef ?: return
-        view.historyManager.clear()
+        view.historyManager.clearNow()
         System.gc()
         val newManager: HistoryManager = when (mode) {
             HistoryMode.NAIVE -> NaiveHistory()
@@ -396,10 +554,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Automated 3-mode comparison made to be watched: the canvas stays visible, two charts grow stroke by stroke
-     * (RAM for the history, and time per stroke) and keep every finished mode on screen for comparison. The Tiered
-     * part draws many more strokes, faster, so the flat line against the two climbing ones is easy to see.
-     * All numbers are measured from the real history managers.
+     * Automated 3-mode comparison.
      */
     private fun startThreeModeAutoDemo() {
         val view = drawingViewRef ?: return
@@ -438,7 +593,6 @@ class MainActivity : ComponentActivity() {
         autoDemoJob = lifecycleScope.launch {
             var completed = false
             try {
-                // One step of one mode: put its RAM and time on the charts and refresh the tier meter
                 fun record(index: Int, ramMb: Double, stepMs: Double, action: String? = null, caption: String = "") {
                     val s = view.historyManager.stats()
                     demoStage = demoStage.copy(
@@ -459,7 +613,7 @@ class MainActivity : ComponentActivity() {
                     refreshTelemetrySnapshot()
                 }
                 suspend fun cleanUp() {
-                    view.historyManager.clear()
+                    view.historyManager.clearNow()
                     System.gc()
                     demoStage = demoStage.copy(
                         hotMb = 0.0, readyMb = 0.0, warmMb = 0.0, coldMb = 0.0, steps = 0, action = "",
@@ -471,9 +625,7 @@ class MainActivity : ComponentActivity() {
 
                 delay(3000L)
 
-                // =========================================================================
                 // PHA 1: NAIVE
-                // =========================================================================
                 switchMode(HistoryMode.NAIVE)
                 view.clearCanvas()
                 System.gc()
@@ -534,16 +686,14 @@ class MainActivity : ComponentActivity() {
                 delay(2600L)
                 cleanUp()
 
-                // =========================================================================
                 // PHA 2: DIRTY RECT
-                // =========================================================================
                 switchMode(HistoryMode.DIRTY_RECT)
                 view.clearCanvas()
                 System.gc()
                 demoStage = demoStage.copy(
                     phase = 2, progress = 0.17f,
-                    title = "2 · Dirty rect: chỉ lưu vùng thay đổi",
-                    explain = "Chỉ lưu vùng nét đi qua, không lưu cả canvas. Nét nhỏ rất nhẹ; nét to phủ rộng thì RAM vẫn leo lên và không có nơi nào để đẩy bớt.",
+                    title = "2 · Dirty rect: chia nhỏ vùng thay đổi",
+                    explain = "Chia nhỏ vùng nét đi qua thành các ô sát nét vẽ. Nét nhỏ rất nhẹ; nhưng không có tầng nén/đĩa nên vẽ lâu RAM vẫn tăng dần.",
                     action = "", meterCaption = ""
                 )
                 delay(3000L)
@@ -598,22 +748,24 @@ class MainActivity : ComponentActivity() {
                 delay(2600L)
                 cleanUp()
 
-                // =========================================================================
-                // PHA 3: TIERED, many more strokes, faster
-                // =========================================================================
+                // PHA 3: TIERED
                 switchMode(HistoryMode.TIERED)
                 view.clearCanvas()
                 System.gc()
-                // A small budget, said out loud on screen: with the full one even 150 strokes barely leave Warm and
-                // the audience would not see the Cold tier at all
                 (view.historyManager as? TieredHistory)?.let { t ->
                     demoRestoreConfig = t.tierConfig
-                    t.updateTierConfig(t.tierConfig.copy(autoBudgets = false, hotBudgetBytes = 1L * 1024 * 1024, warmBudgetBytes = 512L * 1024))
+                    t.updateTierConfig(
+                        t.tierConfig.copy(
+                            autoBudgets = false,
+                            hotBudgetBytes = 12L * 1024 * 1024,
+                            warmBudgetBytes = 6L * 1024 * 1024
+                        )
+                    )
                 }
                 demoStage = demoStage.copy(
                     phase = 3, progress = 0.45f,
-                    title = "3 · Tiered: Hot → Warm → Cold",
-                    explain = "Nét mới ở Hot, nét cũ nén sang Warm, cũ hơn nữa ghi xuống đĩa Cold. Demo thu nhỏ Hot (1 MB) và Warm (0,5 MB) để thấy đủ ba tầng. RAM gần như đi ngang dù vẽ rất nhiều nét.",
+                    title = "3 · Tiered (Ngưỡng 80% & Tự nguội): Hot → Warm → Cold",
+                    explain = "Đẩy sớm ngay từ 80% ngân sách (không đợi 100%) và tự đẩy dần nét lớn. Demo giới hạn Hot (12 MB) và Warm (6 MB) để thấy rõ cả ba tầng.",
                     action = "", meterCaption = ""
                 )
                 delay(3200L)
@@ -627,8 +779,6 @@ class MainActivity : ComponentActivity() {
                     val kind = if (i % 2 == 0) StrokeType.LARGE else StrokeType.SMALL
                     autoDemoProgress = 0.45f + (i.toFloat() / tieredDrawSteps) * 0.40f
 
-                    // At steps 25 and 26, draw with white on the same coordinates so two identical
-                    // before-patches enter WarmStore and can be genuinely deduplicated by CRC32.
                     val stroke = when (i) {
                         25 -> demoDrawer.nextStroke(StrokeType.SMALL).copy(color = AndroidColor.WHITE).also {
                             repeatedStrokeForDedup = it
@@ -642,16 +792,14 @@ class MainActivity : ComponentActivity() {
 
                     val s = view.historyManager.stats()
                     val action = when {
-                        s.coldSteps > 0 && !announcedCold -> { announcedCold = true; "Warm đầy: nét cũ nhất được GHI XUỐNG ĐĨA (Cold)" }
-                        s.warmSteps > 0 && !announcedWarm -> { announcedWarm = true; "Nét cũ bắt đầu được NÉN sang Warm" }
+                        s.coldSteps > 0 && !announcedCold -> { announcedCold = true; "Warm > 80%: nét cũ được GHI XUỐNG ĐĨA (Cold)" }
+                        s.warmSteps > 0 && !announcedWarm -> { announcedWarm = true; "Hot > 80%: nét cũ được NÉN sang Warm" }
                         else -> "Nét $i/$tieredDrawSteps"
                     }
                     record(2, (s.hotBytes + s.warmBytes) / mb, ms, action)
-                    // quick, but the three "first time" moments are held long enough to read
                     delay(if (action.startsWith("Nét ")) 45L else 1400L)
                 }
 
-                // Run OOM Cleaner to deduplicate any identical patches in WarmStore
                 demoStage = demoStage.copy(action = "Dọn trùng lặp trên Warm: hai bước giống hệt chỉ giữ một bản (CRC32)")
                 val tieredMgr = view.historyManager as? TieredHistory
                 val oomSavedBytes = tieredMgr?.runOomCleaner() ?: 0L
@@ -666,7 +814,6 @@ class MainActivity : ComponentActivity() {
                 val measuredCompRatio = if (totalActualBytes > 0L && statsPeakTiered.rawEquivalentBytes > 0L) {
                     statsPeakTiered.rawEquivalentBytes.toDouble() / totalActualBytes.toDouble()
                 } else 1.0
-                // everything that is stored (Hot raw + Warm and Cold compressed) per step: no flattering subset
                 val avgTieredStepKb = if (statsPeakTiered.totalSteps > 0) (totalActualBytes / 1024.0) / statsPeakTiered.totalSteps else 0.0
                 val tieredSteps = statsPeakTiered.totalSteps
                 demoStage = demoStage.copy(
@@ -674,10 +821,9 @@ class MainActivity : ComponentActivity() {
                 )
                 delay(2600L)
 
-                // Continuous undo: Cold steps come back through the prefetcher
                 demoStage = demoStage.copy(
                     title = "3 · Tiered: hoàn tác liên tiếp",
-                    explain = "Hoàn tác lấy nét mới nhất trước: Hot rồi Warm hết trước, sau đó tới Cold. Bộ nạp trước đưa vài nét kế tiếp đi lên: Cold → Warm (đọc đĩa) → Hot (giải nén sẵn, phần \"Sẵn\" trên thanh). Số nét đi lên bị giới hạn bởi ngân sách RAM.",
+                    explain = "Hoàn tác lấy nét mới nhất trước: Hot rồi Warm hết trước, sau đó tới Cold. Bộ nạp trước đưa vài nét kế tiếp đi lên sẵn.",
                     action = ""
                 )
                 delay(2400L)
@@ -736,7 +882,6 @@ class MainActivity : ComponentActivity() {
                     tieredSwam = tieredMetrics
                 )
 
-                // The ending: what was measured, in plain words
                 demoStage = demoStage.copy(
                     phase = 4, progress = 1f,
                     title = "Kết quả",
@@ -754,15 +899,17 @@ class MainActivity : ComponentActivity() {
                 demoRestoreConfig = null
                 isAutoDemoRunning = false
                 if (!completed) demoStage = DemoStageState()
+                view.markCleanAfterDemo()
+                hasUnsavedChanges = false
                 refreshTelemetrySnapshot()
             }
         }
     }
 
-    /**
-     * Runs a live burst of [count] strokes on the CURRENTLY SELECTED mode (NAIVE, DIRTY_RECT, or TIERED)
-     * without switching modes!
-     */
+    private fun DrawingView.markCleanAfterDemo() {
+        hasUnsavedChanges = false
+    }
+
     private fun burstDrawSteps(count: Int, forcedStrokeType: StrokeType? = null) {
         val view = drawingViewRef ?: return
         if (isBurstRunning) {
@@ -790,14 +937,14 @@ class MainActivity : ComponentActivity() {
                     val stroke = burstDrawer.nextStroke(strokeKind)
                     try {
                         view.drawProgrammaticStrokeSuspend(stroke)
-                    } catch (oom: OutOfMemoryError) {
+                    } catch (_: OutOfMemoryError) {
                         System.gc()
                         refreshTelemetrySnapshot()
                         val totalNow = view.historyManager.stats().totalSteps
                         val peakMb = currentTelemetry.peakHeapMb
                         oomAlertMessage =
                             "Đã chạm giới hạn bộ nhớ tại bước #$i (Tổng $totalNow bước) trên chế độ ${modeAtStart.name}.\n" +
-                            "Đỉnh Heap: ${String.format(Locale.US, "%.1f", peakMb)} MB."
+                                "Đỉnh Heap: ${String.format(Locale.US, "%.1f", peakMb)} MB."
                         break
                     }
 
@@ -813,9 +960,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Batch undos [count] steps sequentially on the current mode.
-     */
     private fun burstUndoSteps(count: Int) {
         val view = drawingViewRef ?: return
         if (isBurstRunning) {
@@ -859,14 +1003,10 @@ class MainActivity : ComponentActivity() {
         demoRunner = DemoScenarioRunner(
             timeScale = 1.0f,
             onStateUpdate = { state ->
-                runOnUiThread {
-                    demoState = state
-                }
+                runOnUiThread { demoState = state }
             },
             onSwitchMode = { mode ->
-                runOnUiThread {
-                    switchMode(mode)
-                }
+                runOnUiThread { switchMode(mode) }
             },
             onDrawStroke = { stroke ->
                 runOnUiThread {
@@ -897,6 +1037,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        openingInternalActivity = false
         if (drawingViewRef != null) {
             memorySampler?.start(lifecycleScope)
         }
@@ -907,11 +1048,22 @@ class MainActivity : ComponentActivity() {
         memorySampler?.stop()
     }
 
+    override fun onStop() {
+        super.onStop()
+        if (!openingInternalActivity && !isChangingConfigurations) {
+            // Auto-capture the final canvas to disk and clear Undo/Redo cache when leaving/closing the app
+            captureFinalCanvasAndPurgeUndoCacheOnExit()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         demoRunner?.stop()
         burstJob?.cancel()
         autoDemoJob?.cancel()
+        if (!isChangingConfigurations) {
+            drawingViewRef?.historyManager?.clearNow()
+        }
     }
 
     override fun onTrimMemory(level: Int) {
@@ -922,6 +1074,16 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PixelProStudioScreen() {
         var showLab by remember { mutableStateOf(false) }
+
+        // Intercept system Back while drawing so user can name & save or exit (auto-capturing + clearing undo/redo cache)
+        BackHandler(
+            enabled = trackerVisible || hasUnsavedChanges || currentTelemetry.totalSteps > 0 || currentTelemetry.redoSteps > 0
+        ) {
+            when {
+                trackerVisible -> toggleTracker()
+                else -> showExitDialog = true
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -939,8 +1101,18 @@ class MainActivity : ComponentActivity() {
                     canRedo = currentTelemetry.redoSteps > 0,
                     undoSteps = currentTelemetry.totalSteps,
                     redoSteps = currentTelemetry.redoSteps,
+                    savedCount = savedArtworks.size,
+                    hasUnsavedChanges = hasUnsavedChanges,
                     zoomScale = currentZoomScale,
                     trackerOpen = trackerVisible,
+                    onOpenGallery = {
+                        refreshArtworksList()
+                        showGallerySheet = true
+                    },
+                    onSaveArtwork = {
+                        finishAfterSave = false
+                        showSaveDialog = true
+                    },
                     onUndo = {
                         drawingViewRef?.undo { undone ->
                             refreshTelemetrySnapshot()
@@ -961,10 +1133,10 @@ class MainActivity : ComponentActivity() {
                     onResetZoom = { drawingViewRef?.resetViewport() },
                     onToggleTracker = { toggleTracker() },
                     onClearCanvas = { showClearConfirm = true },
-                    onOpenLab = { showLab = true }
+                    onOpenSettings = { showLab = true }
                 )
 
-                // The workspace: the canvas is full-bleed; everything else floats over the desk
+                // Full-bleed studio workspace
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -977,13 +1149,15 @@ class MainActivity : ComponentActivity() {
                         update = { view ->
                             view.strokeColor = computeEffectiveStrokeColor()
                             view.strokeWidth = selectedStrokeWidth
+                            view.brushStyle = computeEffectiveBrushStyle()
+                            view.shapeMode = if (activeTool == StudioBrushTool.ERASER) ShapeDrawMode.FREEHAND else selectedShapeMode
                             view.showDirtyRectOverlay = showDirtyRectBox
                             view.showPaperGrid = showPaperGrid
                         },
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Top: things that are happening, then the memory line
+                    // Top status & memory telemetry HUD
                     Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -1024,7 +1198,7 @@ class MainActivity : ComponentActivity() {
                                 secondaryLabel = "Giải phóng RAM",
                                 onSecondary = {
                                     oomAlertMessage = null
-                                    drawingViewRef?.historyManager?.clear()
+                                    drawingViewRef?.historyManager?.clearNow()
                                     System.gc()
                                     refreshTelemetrySnapshot()
                                 },
@@ -1072,10 +1246,11 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (demoStage.visible) {
-                            // the stage above is the one place to look while the demo runs
+                            // demo stage header is active
                         } else if (isXRayMinimized && !trackerVisible) {
                             MemoryPill(
                                 telemetry = currentTelemetry,
+                                artworkTitle = activeArtworkTitle,
                                 expanded = false,
                                 onClick = { isXRayMinimized = false }
                             )
@@ -1108,7 +1283,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // While the 3-mode demo runs, the scoreboard takes the place of the tool dock
                     androidx.compose.animation.AnimatedVisibility(
                         visible = demoStage.visible,
                         modifier = Modifier
@@ -1120,18 +1294,17 @@ class MainActivity : ComponentActivity() {
                         DemoCharts(demoStage)
                     }
 
-                    // Bottom: a one-line caption and the tool dock
+                    // Bottom graphic studio dock
                     if (!demoStage.visible) Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // a quiet note after each stroke that fades away; the dock never moves
                         var noteVisible by remember { mutableStateOf(false) }
                         LaunchedEffect(lastPatchSummary) {
                             noteVisible = true
-                            delay(2600L)
+                            delay(2800L)
                             noteVisible = false
                         }
                         Box(modifier = Modifier.height(20.dp), contentAlignment = Alignment.Center) {
@@ -1149,10 +1322,22 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(8.dp))
                         ToolDock(
                             activeTool = activeTool,
+                            shapeMode = selectedShapeMode,
                             color = selectedBaseColor,
                             width = selectedStrokeWidth,
+                            opacity = selectedOpacity,
                             onSelectTool = { tool ->
                                 activeTool = tool
+                                if (tool == StudioBrushTool.ERASER) {
+                                    selectedShapeMode = ShapeDrawMode.FREEHAND
+                                }
+                                syncBrushToView()
+                            },
+                            onSelectShapeMode = { shape ->
+                                selectedShapeMode = shape
+                                if (activeTool == StudioBrushTool.ERASER) {
+                                    activeTool = StudioBrushTool.INK_PEN
+                                }
                                 syncBrushToView()
                             },
                             onSelectColor = { color ->
@@ -1163,10 +1348,111 @@ class MainActivity : ComponentActivity() {
                             onSelectWidth = { width ->
                                 selectedStrokeWidth = width
                                 syncBrushToView()
+                            },
+                            onSelectOpacity = { alpha ->
+                                selectedOpacity = alpha
+                                syncBrushToView()
+                            },
+                            onFillCanvas = {
+                                try {
+                                    drawingViewRef?.fillCanvas(selectedBaseColor)
+                                    refreshTelemetrySnapshot()
+                                } catch (_: OutOfMemoryError) {
+                                    System.gc()
+                                    oomAlertMessage = "Không đủ bộ nhớ để đổ màu cả canvas (16 MB) ở chế độ ${currentMode.name}."
+                                }
                             }
                         )
                     }
                 }
+            }
+
+            if (showSaveDialog) {
+                val defaultTitle = activeArtworkTitle ?: artworkRepository.nextDefaultTitle()
+                SaveArtworkDialog(
+                    initialTitle = defaultTitle,
+                    isExistingArtwork = activeArtworkId != null,
+                    undoStepsToClear = currentTelemetry.totalSteps,
+                    onSaveOverwrite = { title ->
+                        showSaveDialog = false
+                        performSaveArtwork(title = title, saveAsNew = false)
+                    },
+                    onSaveAsNew = { title ->
+                        showSaveDialog = false
+                        performSaveArtwork(title = title, saveAsNew = true)
+                    },
+                    onExportPng = { title ->
+                        exportCurrentCanvasPng(title)
+                    },
+                    onDismiss = {
+                        showSaveDialog = false
+                        finishAfterSave = false
+                    }
+                )
+            }
+
+            if (showGallerySheet) {
+                ArtworkGallerySheet(
+                    artworks = savedArtworks,
+                    activeArtworkId = activeArtworkId,
+                    repository = artworkRepository,
+                    onSelectArtwork = { art -> openSavedArtwork(art) },
+                    onCreateNewCanvas = { paperColor -> startNewArtworkCanvas(paperColor) },
+                    onSaveCurrentFirst = {
+                        finishAfterSave = false
+                        showSaveDialog = true
+                    },
+                    hasUnsavedChanges = hasUnsavedChanges,
+                    onRenameArtwork = { art, newName ->
+                        artworkRepository.renameArtwork(art.id, newName)
+                        refreshArtworksList()
+                    },
+                    onDuplicateArtwork = { art ->
+                        artworkRepository.duplicateArtwork(art.id)
+                        refreshArtworksList()
+                        Toast.makeText(this@MainActivity, "Đã nhân bản '${art.title}'", Toast.LENGTH_SHORT).show()
+                    },
+                    onExportArtwork = { art ->
+                        lifecycleScope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                val bmp = artworkRepository.loadArtworkBitmap(art.id) ?: return@withContext false
+                                try {
+                                    artworkRepository.exportPngToGallery(this@MainActivity, bmp, art.title)
+                                } finally {
+                                    if (!bmp.isRecycled) bmp.recycle()
+                                }
+                            }
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (ok) "Đã xuất '${art.title}' vào Pictures/ChronosCanvas" else "Không thể xuất PNG",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onDeleteArtwork = { art ->
+                        artworkRepository.deleteArtwork(art.id)
+                        refreshArtworksList()
+                    },
+                    onDismiss = { showGallerySheet = false }
+                )
+            }
+
+            if (showExitDialog) {
+                ExitStudioDialog(
+                    hasUnsavedChanges = hasUnsavedChanges,
+                    undoSteps = currentTelemetry.totalSteps,
+                    onSaveAndExit = {
+                        showExitDialog = false
+                        finishAfterSave = true
+                        showSaveDialog = true
+                    },
+                    onAutoCaptureAndExit = {
+                        showExitDialog = false
+                        captureFinalCanvasAndPurgeUndoCacheOnExit()
+                        finish()
+                    },
+                    onDismiss = { showExitDialog = false }
+                )
             }
 
             if (showClearConfirm) {
@@ -1175,13 +1461,13 @@ class MainActivity : ComponentActivity() {
                     containerColor = CyberSurface,
                     titleContentColor = InkText,
                     textContentColor = MutedText,
-                    title = { Text("Xóa bản vẽ?") },
-                    text = { Text("Bản vẽ và toàn bộ lịch sử hoàn tác sẽ bị xóa, không thể khôi phục.") },
+                    title = { Text("Xóa trang vẽ hiện tại?") },
+                    text = { Text("Toàn bộ nét trên trang hiện tại và lịch sử Undo/Redo sẽ bị xóa (các bức tranh đã lưu trong Bộ sưu tập vẫn giữ nguyên).") },
                     confirmButton = {
                         TextButton(onClick = {
                             showClearConfirm = false
                             performClear()
-                        }) { Text("Xóa", color = CoralRose, fontWeight = FontWeight.SemiBold) }
+                        }) { Text("Xóa trang", color = CoralRose, fontWeight = FontWeight.SemiBold) }
                     },
                     dismissButton = {
                         TextButton(onClick = { showClearConfirm = false }) { Text("Hủy", color = MutedText) }
@@ -1197,9 +1483,22 @@ class MainActivity : ComponentActivity() {
                     showSavedRegions = showDirtyRectBox,
                     showGrid = showPaperGrid,
                     showMemoryDetail = !isXRayMinimized,
+                    onOpenGallery = {
+                        refreshArtworksList()
+                        showGallerySheet = true
+                    },
+                    onSaveArtwork = {
+                        finishAfterSave = false
+                        showSaveDialog = true
+                    },
+                    onExportPng = { exportCurrentCanvasPng() },
+                    onNewCanvas = { startNewArtworkCanvas(AndroidColor.WHITE) },
                     onStartComparison = { startThreeModeAutoDemo() },
                     onOpenReport = { showDemoReportModal = true },
-                    onOpenBenchmark = { startActivity(Intent(this@MainActivity, BenchmarkActivity::class.java)) },
+                    onOpenBenchmark = {
+                        openingInternalActivity = true
+                        startActivity(Intent(this@MainActivity, BenchmarkActivity::class.java))
+                    },
                     onOpenConfig = { showSwamSheet = true },
                     onBurstDraw = { count -> burstDrawSteps(count) },
                     onBurstUndo = { count -> burstUndoSteps(count) },
@@ -1241,7 +1540,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             drawingViewRef?.fillCanvas(selectedBaseColor)
                             refreshTelemetrySnapshot()
-                        } catch (oom: OutOfMemoryError) {
+                        } catch (_: OutOfMemoryError) {
                             System.gc()
                             oomAlertMessage = "Không đủ bộ nhớ để đổ màu cả canvas (16 MB) ở chế độ ${currentMode.name}."
                         }
@@ -1250,7 +1549,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Comparison report
             if (showDemoReportModal && latestDemoReport != null) {
                 SwamDemoReportModal(
                     report = latestDemoReport!!,
@@ -1262,7 +1560,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Tier configuration
             if (showSwamSheet) {
                 SwamPaperSheet(
                     currentConfig = currentTierConfig,

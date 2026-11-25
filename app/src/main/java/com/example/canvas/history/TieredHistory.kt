@@ -30,19 +30,46 @@ class TieredHistory(
     var tierConfig: TierConfig = TierConfig(),
     /** Optional hard cap on redo steps; null (default) means memory alone decides. */
     private val maxRedoSteps: Int? = null,
-    private val historyDispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
+    private val historyDispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1),
+    private val clockMs: () -> Long = System::currentTimeMillis
 ) : HistoryManager {
 
     companion object {
-        /** The configuration the app starts with; experiments derive their variants from it with `copy(...)`. */
+        /** Compact baseline configuration used by synthetic E1–E6 benchmark suites. */
         fun defaultConfig() = TierConfig(
-            hotBudgetBytes = 4L * 1024 * 1024, // 4 MiB Hot RAM (~4-8 recent patches)
-            warmBudgetBytes = 256L * 1024,     // 256 KiB Warm compressed RAM (~8-15 compressed patches)
+            hotBudgetBytes = 4L * 1024 * 1024,
+            warmBudgetBytes = 256L * 1024,
             infiniteUndo = true,
             coldMaxSteps = Int.MAX_VALUE,
-            coldMaxBytes = 4L * 1024 * 1024 * 1024, // 4 GiB disk ceiling for Infinite Undo
-            evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE
+            coldMaxBytes = 4L * 1024 * 1024 * 1024,
+            evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE,
+            demotionWatermark = 0.80,
+            idleCoolingEnabled = true
         )
+
+        /**
+         * Production graphic-studio configuration scaled to device heap:
+         * - Hot RAM: ~15% of maxHeap (24–64 MiB) for instant zero-decode recent undo
+         * - Warm compressed RAM: ~10% of maxHeap (16–32 MiB, holding hundreds of compressed strokes)
+         * - Cold disk: 4 GiB Infinite Undo, with 80% proactive watermark & idle thermal cooling.
+         */
+        fun studioConfig(): TierConfig {
+            val maxHeap = Runtime.getRuntime().maxMemory().coerceAtLeast(128L * 1024 * 1024)
+            val hotBytes = (maxHeap * 0.15).toLong().coerceIn(24L * 1024 * 1024, 64L * 1024 * 1024)
+            val warmBytes = (maxHeap * 0.10).toLong().coerceIn(16L * 1024 * 1024, 32L * 1024 * 1024)
+            return TierConfig(
+                hotBudgetBytes = hotBytes,
+                warmBudgetBytes = warmBytes,
+                infiniteUndo = true,
+                coldMaxSteps = Int.MAX_VALUE,
+                coldMaxBytes = 4L * 1024 * 1024 * 1024,
+                evictionStrategy = SwamEvictionStrategy.SWAM_COST_AWARE,
+                autoBudgets = false,
+                demotionWatermark = 0.80,
+                largeStrokeRatio = 0.45,
+                idleCoolingEnabled = true
+            )
+        }
 
         fun create(
             context: Context,
@@ -89,7 +116,8 @@ class TieredHistory(
         onColdBlocked = { onColdBlocked?.invoke() },
         autoBudgets = { computeAutoBudgets() },
         events = events,
-        patchOverheadBytes = { prefetcher.model.patchOverheadBytes() ?: 0L }
+        patchOverheadBytes = { prefetcher.model.patchOverheadBytes() ?: 0L },
+        clockMs = clockMs
     )
 
     /**
@@ -104,7 +132,16 @@ class TieredHistory(
         val heavy = m.heavyStrokeBytes() ?: return null
         val total = tierPolicy.config.hotBudgetBytes + tierPolicy.config.warmBudgetBytes
         val room = (MemorySignal.free() - m.memoryReserveBytes()).coerceAtLeast(0L)
-        return TierBudgetPlanner.split(total, typical, heavy, m.expectedRun(), room)
+        val (plannedHot, plannedWarm) = TierBudgetPlanner.split(total, typical, heavy, m.expectedRun(), room)
+        // Never starve Hot below 25% of available total when configured with studio-scale RAM (>= 12 MiB)
+        if (total >= 12L * 1024 * 1024 && plannedHot + plannedWarm >= 8L * 1024 * 1024) {
+            val totalAvail = plannedHot + plannedWarm
+            val minHot = (totalAvail * 25L) / 100L
+            if (plannedHot < minHot) {
+                return minHot to (totalAvail - minHot)
+            }
+        }
+        return plannedHot to plannedWarm
     }
 
     override fun patchOverheadBytes(): Long? = prefetcher.model.patchOverheadBytes()
@@ -205,8 +242,13 @@ class TieredHistory(
     private val redoStack = ArrayDeque<Patch>()
     private var totalRawEquivalentBytes: Long = 0L
     private var lastCommittedGroupId: Long = -1L
+    @Volatile private var lastActivityMs: Long = clockMs()
+    private var coolingJob: kotlinx.coroutines.Job? = null
 
     override suspend fun commit(before: Patch): Unit = withContext(historyDispatcher) {
+        val now = clockMs()
+        lastActivityMs = now
+        before.createdAtMs = now
         before.state = PatchState.HOT
         if (before.bitmap != null) {
             before.sizeBytes = before.bitmap!!.allocationByteCount.toLong()
@@ -230,6 +272,7 @@ class TieredHistory(
         prefetcher.onCommit(newStroke, before.sizeBytes)
 
         settleTiers()
+        scheduleIdleCooling()
     }
 
     // ---- moving steps down the tiers without making the user wait ---------------------------------------------------
@@ -250,7 +293,10 @@ class TieredHistory(
      * than they can be compressed.
      */
     private suspend fun settleTiers() {
-        if (!tierPolicy.config.asyncDemotion || hotStore.totalBytes > 2 * tierPolicy.hotBudget()) {
+        // Apply synchronous backpressure if Hot exceeds 1.6x full budget or system RAM headroom drops low;
+        // TierPolicy.transitionMutex guarantees single-flight demotion without concurrent Bitmap races.
+        val lowFreeRam = MemorySignal.free() < 48L * 1024 * 1024
+        if (!tierPolicy.config.asyncDemotion || lowFreeRam || hotStore.totalBytes > (tierPolicy.hotBudget() * 16L) / 10L) {
             tierPolicy.enforceBudgets()
             return
         }
@@ -269,6 +315,38 @@ class TieredHistory(
                 settling = false
             }
         }
+    }
+
+    /**
+     * Finite background thermal decay timer: after the user pauses drawing, progressively cools
+     * patches Hot -> Warm -> Cold step-by-step and stops completely once Hot and Warm reach 0 bytes.
+     */
+    private fun scheduleIdleCooling() {
+        coolingJob?.cancel()
+        coolingJob = null
+        if (!tierPolicy.config.idleCoolingEnabled) return
+        coolingJob = scope.launch {
+            val firstWait = tierPolicy.config.hotCoolAfterMs.coerceAtLeast(200L)
+            kotlinx.coroutines.delay(firstWait)
+            while (tierPolicy.config.idleCoolingEnabled) {
+                val idleMs = (clockMs() - lastActivityMs).coerceAtLeast(0L)
+                if (idleMs < tierPolicy.config.hotCoolAfterMs) {
+                    kotlinx.coroutines.delay((tierPolicy.config.hotCoolAfterMs - idleMs).coerceAtLeast(100L))
+                    continue
+                }
+                val hasMoreToCool = tierPolicy.coolStep(idleMs)
+                requestTierMap()
+                if (!hasMoreToCool) break
+                kotlinx.coroutines.delay(tierPolicy.config.coolStepIntervalMs.coerceAtLeast(200L))
+            }
+        }
+    }
+
+    /** Deterministic single cooling pass for tests or manual cooling triggers. */
+    suspend fun coolForIdleMs(idleMs: Long): Boolean = withContext(historyDispatcher) {
+        val more = tierPolicy.coolStep(idleMs)
+        requestTierMap()
+        more
     }
 
     /** Pops the top patch plus every other patch of the same stroke group (dirty tiles). */
@@ -299,6 +377,8 @@ class TieredHistory(
 
     override suspend fun undo(canvas: Bitmap): Boolean = withContext(historyDispatcher) {
         if (undoHistory.isEmpty()) return@withContext false
+        lastActivityMs = clockMs()
+        coolingJob?.cancel()
 
         val group = popGroup(undoHistory)
         redoBehavior.onOther()
@@ -402,6 +482,7 @@ class TieredHistory(
 
         // 4. Adaptive prefetch: the model decides how many upcoming stroke groups to read Cold -> Warm
         prefetcher.prefetchAhead(undoHistory, scope)
+        scheduleIdleCooling()
 
         return@withContext true
     }
@@ -427,6 +508,9 @@ class TieredHistory(
 
     override suspend fun redo(canvas: Bitmap): Boolean = withContext(historyDispatcher) {
         if (redoStack.isEmpty()) return@withContext false
+        val now = clockMs()
+        lastActivityMs = now
+        coolingJob?.cancel()
 
         val group = popGroup(redoStack)
         redoBehavior.onRedo()
@@ -456,7 +540,8 @@ class TieredHistory(
                 rawLength = undoBitmap.byteCount,
                 groupId = patchToRestore.groupId,
                 op = patchToRestore.op,
-                strokeNo = patchToRestore.strokeNo
+                strokeNo = patchToRestore.strokeNo,
+                createdAtMs = now
             )
             // The encoding describes the pixels this undo patch captures now. It is still there only if nothing
             // drawn since the undo touched this area (that would have cleared it), so the pixels are the same
@@ -486,6 +571,7 @@ class TieredHistory(
         )
 
         settleTiers()
+        scheduleIdleCooling()
         return@withContext true
     }
 
@@ -508,8 +594,8 @@ class TieredHistory(
     }
 
     private suspend fun resolveBitmapForPatch(patch: Patch, width: Int, height: Int): Bitmap {
-        // Case 1: Bitmap is already in RAM (HOT, in middle of COMPRESSING, or pre-decompressed)
-        patch.bitmap?.takeIf { !it.isRecycled }?.let { return it }
+        // Case 1: Atomically detach in-RAM Bitmap so undo owns it exclusively before recycling
+        patch.takeBitmap()?.let { return it }
 
         val rawBytes = width.toLong() * height * 4L
 
@@ -575,6 +661,7 @@ class TieredHistory(
         prefetcher.keepColdFiles = newConfig.reuseEncodings
         scope.launch {
             tierPolicy.enforceBudgets()
+            scheduleIdleCooling()
         }
     }
 
@@ -621,23 +708,57 @@ class TieredHistory(
             coldEvictedSteps = tierPolicy.evictedStrokes,
             diskFreeBytes = tierPolicy.diskFree(),
             infiniteUndoEnabled = tierConfig.infiniteUndo,
-            evictionStrategy = tierConfig.evictionStrategy.name
+            evictionStrategy = tierConfig.evictionStrategy.name,
+            demotionWatermark = tierConfig.demotionWatermark.toFloat(),
+            idleCoolingEnabled = tierConfig.idleCoolingEnabled
         )
     }
 
+    private fun clearAllLocked() {
+        hotStore.clear()
+        warmStore.clear()
+        coldStore.clear()
+        undoHistory.clear()
+        totalRawEquivalentBytes = 0L
+        lastCommittedGroupId = -1L
+        tierPolicy.resetSwamMetrics()
+        strokeCounter = 0
+        clearRedoStackLocked()
+        prefetcher.resetStats()
+        redoBehavior.reset()
+        requestTierMap()
+    }
+
     override fun clear() {
+        tierPolicy.epoch++           // moves still in flight must not put their step back
+        coolingJob?.cancel()
+        coolingJob = null
         scope.launch {
-            tierPolicy.epoch++           // moves still in flight must not put their step back
-            hotStore.clear()
-            warmStore.clear()
-            coldStore.clear()
-            undoHistory.clear()
-            totalRawEquivalentBytes = 0L
-            tierPolicy.resetSwamMetrics()
-            strokeCounter = 0
-            clearRedoStackLocked()
-            prefetcher.resetStats()
-            redoBehavior.reset()
+            clearAllLocked()
+        }
+    }
+
+    override fun clearNow() {
+        tierPolicy.epoch++
+        coolingJob?.cancel()
+        coolingJob = null
+        try {
+            coldStore.cleanupOrphanedFiles()
+        } catch (_: Throwable) {}
+        val clearedSynchronously = try {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(600L) {
+                    withContext(historyDispatcher) {
+                        clearAllLocked()
+                        true
+                    }
+                } ?: false
+            }
+        } catch (_: Throwable) {
+            false
+        }
+        if (!clearedSynchronously) {
+            scope.launch { clearAllLocked() }
         }
     }
 

@@ -5,9 +5,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -16,29 +17,40 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import com.example.canvas.core.BrushStyle
 import com.example.canvas.core.Patch
 import com.example.canvas.core.Stroke
 import com.example.canvas.core.StrokeOp
+import com.example.canvas.core.StrokePoint
 import com.example.canvas.core.StrokeRenderer
 import com.example.canvas.history.HistoryManager
-import com.example.canvas.history.MemorySignal
 import com.example.canvas.history.HistoryMode
+import com.example.canvas.history.MemorySignal
 import com.example.canvas.history.NaiveHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
+import kotlin.math.sin
+
+enum class ShapeDrawMode(val label: String) {
+    FREEHAND("Vẽ tự do"),
+    LINE("Đường thẳng"),
+    RECTANGLE("Chữ nhật"),
+    OVAL("Hình elip")
+}
 
 /**
  * Pro-grade Custom View hosting a fixed 2048x2048 backing bitmap with:
- * - Smooth single-finger Bézier stroke drawing
- * - Two-finger pinch-to-zoom (0.5x .. 5.0x) and pan
- * - Double-tap or one-tap reset to fit screen
- * - Elevated studio paper shadow, desk dot-grid, and optional paper guide grid
- * - Optional Dirty-Rect bounding box visualizer for SWAM live demos
+ * - Smooth single-finger Bézier stroke drawing, feathered brushes, and geometric shape tools
+ * - Two-finger pinch-to-zoom (0.45x .. 6.0x) and pan
+ * - Snapshot capture, artwork loading, and instant history flattening for studio save/exit workflows
+ * - Real-time Dirty-Rect & subdivided capsule tile visualizer
  */
 class DrawingView @JvmOverloads constructor(
     context: Context,
@@ -66,10 +78,19 @@ class DrawingView @JvmOverloads constructor(
         }
     var strokeColor: Int = Color.BLACK
     var strokeWidth: Float = 16f
+    var brushStyle: BrushStyle = BrushStyle.SOLID
+    var shapeMode: ShapeDrawMode = ShapeDrawMode.FREEHAND
+    var paperBackgroundColor: Int = Color.WHITE
     var showDirtyRectOverlay: Boolean = true
     var showPaperGrid: Boolean = false
     /** true = save only the dirty tiles a stroke touches; false = one bounding box (paper baseline). */
     var tilingEnabled: Boolean = true
+
+    /** True whenever strokes/fills/undos modified the canvas since the last save or clean reset. */
+    var hasUnsavedChanges: Boolean = false
+    /** True once any stroke, fill, or loaded artwork exists on this canvas. */
+    var hasDrawnAnyContent: Boolean = false
+
     var lastDirtyRect: Rect? = null
         private set
     /** The patches the last stroke really saved (tiles), shown by the overlay. */
@@ -77,6 +98,7 @@ class DrawingView @JvmOverloads constructor(
         private set
 
     var onStrokeCommitted: ((Patch) -> Unit)? = null
+    var onCanvasModifiedChanged: ((Boolean) -> Unit)? = null
     var onZoomChanged: ((Float) -> Unit)? = null
     var onOomCaught: ((String) -> Unit)? = null
 
@@ -89,6 +111,10 @@ class DrawingView @JvmOverloads constructor(
     private val backingCanvas: Canvas = Canvas(backingBitmap)
 
     private val strokeRenderer = StrokeRenderer()
+    private val srcCopyPaint = Paint().apply {
+        isFilterBitmap = true
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+    }
 
     /** Lets the history replay a recorded step on the current canvas (redo with merge). */
     private val opRenderer: (Canvas, StrokeOp) -> Unit = { c, op ->
@@ -99,7 +125,10 @@ class DrawingView @JvmOverloads constructor(
     init {
         historyManager.opRenderer = opRenderer
     }
+
     private var liveStroke: Stroke? = null
+    private var shapeStartX: Float = 0f
+    private var shapeStartY: Float = 0f
 
     // Viewport transformation state
     private var baseScale: Float = 1f
@@ -156,16 +185,13 @@ class DrawingView @JvmOverloads constructor(
     private val gestureDetector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                // Double tap with 2 fingers or near border resets zoom
-                return false
-            }
+            override fun onDoubleTap(e: MotionEvent): Boolean = false
         }
     )
 
     // Studio paints
     private val bgPaint = Paint().apply {
-        color = Color.parseColor("#262320")          // the desk: a calm warm grey, a step lighter than the bars
+        color = Color.parseColor("#262320")
     }
 
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -212,6 +238,13 @@ class DrawingView @JvmOverloads constructor(
         backingCanvas.drawColor(Color.WHITE)
     }
 
+    private fun markModified(modified: Boolean) {
+        if (hasUnsavedChanges != modified) {
+            hasUnsavedChanges = modified
+            onCanvasModifiedChanged?.invoke(modified)
+        }
+    }
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         viewScope.cancel()
@@ -255,6 +288,61 @@ class DrawingView @JvmOverloads constructor(
         invalidate()
     }
 
+    private fun buildGeometricStroke(x0: Float, y0: Float, x1: Float, y1: Float): Stroke {
+        val pts = ArrayList<StrokePoint>()
+        when (shapeMode) {
+            ShapeDrawMode.FREEHAND -> {
+                pts.add(StrokePoint(x0, y0))
+                if (hypot(x1 - x0, y1 - y0) >= 0.5f) pts.add(StrokePoint(x1, y1))
+            }
+            ShapeDrawMode.LINE -> {
+                pts.add(StrokePoint(x0, y0))
+                pts.add(StrokePoint(x1, y1))
+            }
+            ShapeDrawMode.RECTANGLE -> {
+                val l = minOf(x0, x1)
+                val r = maxOf(x0, x1)
+                val t = minOf(y0, y1)
+                val b = maxOf(y0, y1)
+                if (r - l < 1f && b - t < 1f) {
+                    pts.add(StrokePoint(l, t))
+                } else {
+                    // Doubled corner vertices keep quadTo spline corners sharp 90°
+                    pts.add(StrokePoint(l, t))
+                    pts.add(StrokePoint(r, t))
+                    pts.add(StrokePoint(r, t))
+                    pts.add(StrokePoint(r, b))
+                    pts.add(StrokePoint(r, b))
+                    pts.add(StrokePoint(l, b))
+                    pts.add(StrokePoint(l, b))
+                    pts.add(StrokePoint(l, t))
+                    pts.add(StrokePoint(l, t))
+                }
+            }
+            ShapeDrawMode.OVAL -> {
+                val cx = (x0 + x1) / 2f
+                val cy = (y0 + y1) / 2f
+                val rx = kotlin.math.abs(x1 - x0) / 2f
+                val ry = kotlin.math.abs(y1 - y0) / 2f
+                if (rx < 1f && ry < 1f) {
+                    pts.add(StrokePoint(cx, cy))
+                } else {
+                    val segments = 56
+                    for (i in 0..segments) {
+                        val angle = (2.0 * PI * i) / segments
+                        pts.add(
+                            StrokePoint(
+                                (cx + rx * cos(angle).toFloat()).coerceIn(0f, CANVAS_SIZE.toFloat()),
+                                (cy + ry * sin(angle).toFloat()).coerceIn(0f, CANVAS_SIZE.toFloat())
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        return Stroke(color = strokeColor, width = strokeWidth, points = pts, style = brushStyle)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleGestureDetector.onTouchEvent(event)
@@ -283,9 +371,15 @@ class DrawingView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val stroke = Stroke(color = strokeColor, width = strokeWidth)
-                stroke.addPoint(canvasX, canvasY)
-                liveStroke = stroke
+                shapeStartX = canvasX
+                shapeStartY = canvasY
+                if (shapeMode == ShapeDrawMode.FREEHAND) {
+                    val stroke = Stroke(color = strokeColor, width = strokeWidth, style = brushStyle)
+                    stroke.addPoint(canvasX, canvasY)
+                    liveStroke = stroke
+                } else {
+                    liveStroke = buildGeometricStroke(shapeStartX, shapeStartY, canvasX, canvasY)
+                }
                 invalidate()
                 return true
             }
@@ -293,22 +387,24 @@ class DrawingView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 val stroke = liveStroke
                 if (stroke != null) {
-                    // Skip points closer than one screen pixel (jitter); the minimum follows the zoom
-                    val pts = stroke.points
-                    val minStep = 1f / (baseScale * userScale).coerceAtLeast(1e-3f)
-                    // The system batches several touch samples per event: keep them all, oldest first
-                    for (h in 0 until event.historySize) {
-                        touchPoints[0] = event.getHistoricalX(h)
-                        touchPoints[1] = event.getHistoricalY(h)
-                        inverseMatrix.mapPoints(touchPoints)
-                        val hx = touchPoints[0].coerceIn(0f, CANVAS_SIZE.toFloat())
-                        val hy = touchPoints[1].coerceIn(0f, CANVAS_SIZE.toFloat())
-                        if (pts.isEmpty() || hypot(hx - pts.last().x, hy - pts.last().y) >= minStep) {
-                            stroke.addPoint(hx, hy)
+                    if (shapeMode == ShapeDrawMode.FREEHAND) {
+                        val pts = stroke.points
+                        val minStep = 1f / (baseScale * userScale).coerceAtLeast(1e-3f)
+                        for (h in 0 until event.historySize) {
+                            touchPoints[0] = event.getHistoricalX(h)
+                            touchPoints[1] = event.getHistoricalY(h)
+                            inverseMatrix.mapPoints(touchPoints)
+                            val hx = touchPoints[0].coerceIn(0f, CANVAS_SIZE.toFloat())
+                            val hy = touchPoints[1].coerceIn(0f, CANVAS_SIZE.toFloat())
+                            if (pts.isEmpty() || hypot(hx - pts.last().x, hy - pts.last().y) >= minStep) {
+                                stroke.addPoint(hx, hy)
+                            }
                         }
-                    }
-                    if (pts.isEmpty() || hypot(canvasX - pts.last().x, canvasY - pts.last().y) >= minStep) {
-                        stroke.addPoint(canvasX, canvasY)
+                        if (pts.isEmpty() || hypot(canvasX - pts.last().x, canvasY - pts.last().y) >= minStep) {
+                            stroke.addPoint(canvasX, canvasY)
+                        }
+                    } else {
+                        liveStroke = buildGeometricStroke(shapeStartX, shapeStartY, canvasX, canvasY)
                     }
                     invalidate()
                 }
@@ -316,9 +412,14 @@ class DrawingView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val stroke = liveStroke
+                val stroke = if (shapeMode == ShapeDrawMode.FREEHAND) {
+                    liveStroke?.also {
+                        if (it.points.isNotEmpty() && !isMultiTouch) it.addPoint(canvasX, canvasY)
+                    }
+                } else {
+                    if (!isMultiTouch) buildGeometricStroke(shapeStartX, shapeStartY, canvasX, canvasY) else null
+                }
                 if (stroke != null && stroke.points.isNotEmpty() && !isMultiTouch) {
-                    stroke.addPoint(canvasX, canvasY)
                     commitStroke(stroke)
                 }
                 liveStroke = null
@@ -340,7 +441,6 @@ class DrawingView @JvmOverloads constructor(
     /**
      * Suspending version of [drawProgrammaticStroke] that awaits [HistoryManager.commit]
      * so rapid burst tests (+50 / +200 steps) apply backpressure and keep UI 120Hz smooth.
-     * Throws [OutOfMemoryError] if snapshot allocation fails (e.g., in NAIVE mode).
      */
     suspend fun drawProgrammaticStrokeSuspend(stroke: Stroke) {
         val beforePatches = captureBeforePatches(stroke)
@@ -348,20 +448,17 @@ class DrawingView @JvmOverloads constructor(
         val summary = summarize(beforePatches, stroke)
         lastDirtyRect = summary.rect
         lastDirtyRegions = beforePatches.map { it.rect }
+        hasDrawnAnyContent = true
+        markModified(true)
         invalidate()
 
         commitAll(beforePatches)
         onStrokeCommitted?.invoke(summary)
     }
 
-    /**
-     * Proactively guards against exhausting process RAM when running un-tiered modes
-     * ([HistoryMode.NAIVE] or [HistoryMode.DIRTY_RECT]) so the app never gets killed by OS/RenderThread OOM,
-     * while still throwing a catchable [OutOfMemoryError] to demonstrate memory exhaustion!
-     */
     private fun ensureMemoryHeadroomOrThrow(requiredBytes: Long) {
         val mode = historyManager.mode
-        if (mode == HistoryMode.TIERED) return // TIERED SWAM automatically offloads Hot -> Warm -> Cold
+        if (mode == HistoryMode.TIERED) return
 
         val stats = historyManager.stats()
         val currentHotBytes = stats.hotBytes
@@ -387,11 +484,12 @@ class DrawingView @JvmOverloads constructor(
         }
     }
 
+    private fun effectiveTileOverheadBytes(): Long =
+        (historyManager.patchOverheadBytes() ?: Stroke.GROUPED_TILE_OVERHEAD_BYTES)
+            .coerceIn(1024L, Stroke.PAGE_BYTES)
+
     /**
      * Captures the "before" pixels of the area [stroke] will modify.
-     * NAIVE: one full-canvas copy. Otherwise one patch per dirty tile run (see
-     * [Stroke.computeDirtyRegions]) when [tilingEnabled], or a single bounding-box patch.
-     * Multiple patches of one stroke share a [Patch.groupId] so undo/redo treats them as one step.
      */
     private fun captureBeforePatches(stroke: Stroke): List<Patch> {
         if (historyManager.mode == HistoryMode.NAIVE) {
@@ -410,7 +508,7 @@ class DrawingView @JvmOverloads constructor(
         }
 
         val regions = if (tilingEnabled) {
-            stroke.computeDirtyRegions(CANVAS_SIZE, CANVAS_SIZE, historyManager.patchOverheadBytes() ?: Stroke.PAGE_BYTES)
+            stroke.computeDirtyRegions(CANVAS_SIZE, CANVAS_SIZE, effectiveTileOverheadBytes())
         } else {
             listOf(stroke.computeBounds(CANVAS_SIZE, CANVAS_SIZE))
         }
@@ -419,6 +517,7 @@ class DrawingView @JvmOverloads constructor(
         ensureMemoryHeadroomOrThrow(totalBytes)
 
         val groupId = if (regions.size > 1) System.nanoTime() else 0L
+        val sharedOp = StrokeOp(stroke = stroke)
         val patches = ArrayList<Patch>(regions.size)
         try {
             for (rect in regions) {
@@ -436,7 +535,7 @@ class DrawingView @JvmOverloads constructor(
                         bitmap = bmp,
                         sizeBytes = bmp.allocationByteCount.toLong(),
                         groupId = groupId,
-                        op = StrokeOp(stroke = stroke)
+                        op = sharedOp
                     )
                 )
             }
@@ -447,7 +546,6 @@ class DrawingView @JvmOverloads constructor(
         return patches
     }
 
-    /** Summary patch (no bitmap, never stored) used for UI callbacks about one committed stroke. */
     private fun summarize(patches: List<Patch>, stroke: Stroke): Patch {
         val bounds = if (patches.size == 1) patches[0].rect else stroke.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
         return Patch(
@@ -472,13 +570,13 @@ class DrawingView @JvmOverloads constructor(
             return
         }
 
-        // 2. Render stroke onto backing bitmap
         strokeRenderer.renderStroke(backingCanvas, stroke)
         val summary = summarize(beforePatches, stroke)
         lastDirtyRect = summary.rect
         lastDirtyRegions = beforePatches.map { it.rect }
+        hasDrawnAnyContent = true
+        markModified(true)
 
-        // 3. Commit before patches to history manager (in order, one coroutine)
         viewScope.launch {
             commitAll(beforePatches)
             onStrokeCommitted?.invoke(summary)
@@ -487,7 +585,6 @@ class DrawingView @JvmOverloads constructor(
 
     /**
      * Fills the entire 2048x2048 canvas with [color].
-     * Captures a before snapshot so this operation is undoable.
      */
     fun fillCanvas(color: Int) {
         val fullCanvasBytes = CANVAS_SIZE.toLong() * CANVAS_SIZE.toLong() * 4L
@@ -510,9 +607,12 @@ class DrawingView @JvmOverloads constructor(
             return
         }
 
+        paperBackgroundColor = color
         backingCanvas.drawColor(color)
         lastDirtyRect = beforePatch.rect
         lastDirtyRegions = listOf(beforePatch.rect)
+        hasDrawnAnyContent = true
+        markModified(true)
         viewScope.launch {
             historyManager.commit(beforePatch)
             onStrokeCommitted?.invoke(beforePatch)
@@ -520,13 +620,11 @@ class DrawingView @JvmOverloads constructor(
         invalidate()
     }
 
-    /**
-     * Reverts the most recent stroke.
-     */
     fun undo(onComplete: ((Boolean) -> Unit)? = null) {
         viewScope.launch {
             val undone = historyManager.undo(backingBitmap)
             if (undone) {
+                markModified(true)
                 invalidate()
             }
             onComplete?.invoke(undone)
@@ -536,18 +634,17 @@ class DrawingView @JvmOverloads constructor(
     suspend fun undoSuspend(): Boolean {
         val undone = historyManager.undo(backingBitmap)
         if (undone) {
+            markModified(true)
             invalidate()
         }
         return undone
     }
 
-    /**
-     * Re-applies the most recently reverted stroke.
-     */
     fun redo(onComplete: ((Boolean) -> Unit)? = null) {
         viewScope.launch {
             val redone = historyManager.redo(backingBitmap)
             if (redone) {
+                markModified(true)
                 invalidate()
             }
             onComplete?.invoke(redone)
@@ -555,13 +652,67 @@ class DrawingView @JvmOverloads constructor(
     }
 
     /**
+     * Captures a standalone snapshot of the current 2048x2048 canvas for saving to disk.
+     */
+    fun captureCanvasSnapshot(): Bitmap {
+        return backingBitmap.copy(Bitmap.Config.ARGB_8888, false)
+    }
+
+    /**
+     * Flattens the current artwork on screen and immediately purges all Undo/Redo RAM & Cold disk cache
+     * (used right after saving an artwork or when closing/leaving a drawing session).
+     */
+    fun flattenAndClearHistory() {
+        lastDirtyRect = null
+        lastDirtyRegions = emptyList()
+        markModified(false)
+        historyManager.clearNow()
+        invalidate()
+    }
+
+    /**
+     * Loads a saved artwork bitmap onto the 2048x2048 canvas and clears previous undo/redo history.
+     */
+    fun loadArtworkBitmap(bitmap: Bitmap) {
+        val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
+        val dstRect = Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+        backingCanvas.drawColor(Color.WHITE)
+        backingCanvas.drawBitmap(bitmap, srcRect, dstRect, srcCopyPaint)
+        paperBackgroundColor = Color.WHITE
+        lastDirtyRect = null
+        lastDirtyRegions = emptyList()
+        hasDrawnAnyContent = true
+        markModified(false)
+        historyManager.clearNow()
+        invalidate()
+    }
+
+    /**
+     * Starts a brand-new blank canvas with [bgColor] and clears all Undo/Redo history.
+     */
+    fun startNewCanvas(bgColor: Int = Color.WHITE) {
+        paperBackgroundColor = bgColor
+        backingCanvas.drawColor(bgColor)
+        lastDirtyRect = null
+        lastDirtyRegions = emptyList()
+        hasDrawnAnyContent = bgColor != Color.WHITE
+        markModified(false)
+        historyManager.clearNow()
+        resetViewport()
+        invalidate()
+    }
+
+    /**
      * Clears history and resets canvas to white.
      */
     fun clearCanvas() {
+        paperBackgroundColor = Color.WHITE
         backingCanvas.drawColor(Color.WHITE)
         lastDirtyRect = null
         lastDirtyRegions = emptyList()
-        historyManager.clear()
+        hasDrawnAnyContent = false
+        markModified(false)
+        historyManager.clearNow()
         invalidate()
     }
 
@@ -571,7 +722,7 @@ class DrawingView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
 
-        // 1. The desk: one flat colour
+        // 1. The desk
         canvas.drawRect(0f, 0f, w, h, bgPaint)
 
         // 2. Apply viewport matrix for 2048x2048 artboard drawing
@@ -600,21 +751,31 @@ class DrawingView @JvmOverloads constructor(
             HistoryMode.TIERED -> Color.parseColor("#E2553A")
         }
 
-        // Draw live stroke preview with brush cursor ring
         val currentLive = liveStroke
         if (currentLive != null) {
             strokeRenderer.renderLiveStroke(canvas, currentLive, modeAccentColor)
         }
 
-        // What this stroke really saved (patches), and the box a single bounding rect would have saved
+        // Real-time subdivided dirty-box overlay (shown both live while dragging and after commit)
         if (showDirtyRectOverlay) {
             if (currentLive != null && currentLive.points.isNotEmpty()) {
-                val box = if (historyManager.mode == HistoryMode.NAIVE) Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-                else currentLive.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
-                drawSavedOverlay(canvas, listOf(box), box, modeAccentColor, live = true)
+                if (historyManager.mode == HistoryMode.NAIVE) {
+                    val full = Rect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+                    drawSavedOverlay(canvas, listOf(full), full, modeAccentColor, live = true)
+                } else {
+                    val box = currentLive.computeBounds(CANVAS_SIZE, CANVAS_SIZE)
+                    val liveRegions = if (tilingEnabled && currentLive.points.size <= 160) {
+                        currentLive.computeDirtyRegions(CANVAS_SIZE, CANVAS_SIZE, effectiveTileOverheadBytes())
+                    } else {
+                        listOf(box)
+                    }
+                    drawSavedOverlay(canvas, liveRegions, box, modeAccentColor, live = true)
+                }
             } else {
                 val box = lastDirtyRect
-                if (box != null) drawSavedOverlay(canvas, lastDirtyRegions.ifEmpty { listOf(box) }, box, modeAccentColor, live = false)
+                if (box != null) {
+                    drawSavedOverlay(canvas, lastDirtyRegions.ifEmpty { listOf(box) }, box, modeAccentColor, live = false)
+                }
             }
         }
 
@@ -624,11 +785,6 @@ class DrawingView @JvmOverloads constructor(
         canvas.restore()
     }
 
-    /**
-     * Draws the patches a stroke saved as light tinted rectangles with a hairline, inside a dashed outline of
-     * the bounding box a plain dirty-rect history would have copied, plus one small label. Line widths and the
-     * text follow the zoom so they stay hairlines on screen instead of growing with the canvas.
-     */
     private fun drawSavedOverlay(canvas: Canvas, regions: List<Rect>, box: Rect, accent: Int, live: Boolean) {
         val density = resources.displayMetrics.density
         val scale = (baseScale * userScale).coerceAtLeast(1e-3f)
@@ -637,7 +793,7 @@ class DrawingView @JvmOverloads constructor(
         regionFillPaint.color = accent
         regionFillPaint.alpha = if (live) 22 else 30
         regionLinePaint.color = accent
-        regionLinePaint.alpha = 200
+        regionLinePaint.alpha = 205
         regionLinePaint.strokeWidth = hair
         boundsPaint.color = accent
         boundsPaint.alpha = 110
@@ -650,13 +806,14 @@ class DrawingView @JvmOverloads constructor(
             canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(), regionLinePaint)
             coveredPx += r.width().toLong() * r.height()
         }
-        if (regions.size > 1 || regions[0] != box) {
+        if (regions.size > 1 || regions.firstOrNull() != box) {
             canvas.drawRect(box.left.toFloat(), box.top.toFloat(), box.right.toFloat(), box.bottom.toFloat(), boundsPaint)
         }
 
-        // One label, rebuilt only when what it says changes
+        val boxPx = (box.width().toLong() * box.height()).coerceAtLeast(1L)
+        val pct = (coveredPx * 100L / boxPx).coerceIn(1L, 100L)
         val key = coveredPx xor (regions.size.toLong() shl 40) xor (historyManager.mode.ordinal.toLong() shl 56) xor
-            (if (live) 1L else 0L)
+            (if (live) 1L else 0L) xor (pct shl 32)
         if (key != labelKey || labelText.isEmpty()) {
             labelKey = key
             val kb = coveredPx * 4.0 / 1024.0
@@ -664,8 +821,8 @@ class DrawingView @JvmOverloads constructor(
             else String.format(java.util.Locale.US, "%.0f KB", kb)
             labelText = when {
                 historyManager.mode == HistoryMode.NAIVE -> "Cả canvas · $size"
-                regions.size == 1 -> "1 vùng · $size"
-                else -> "${regions.size} vùng · $size"
+                regions.size == 1 -> "1 ô · $size ($pct% khung)"
+                else -> "${regions.size} ô nhỏ · $size ($pct% khung)"
             }
         }
         val textSize = 11f * density / scale

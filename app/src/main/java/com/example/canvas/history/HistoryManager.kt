@@ -61,7 +61,9 @@ data class HistoryStats(
     val coldEvictedSteps: Int = 0,
     val diskFreeBytes: Long = 0L,
     val infiniteUndoEnabled: Boolean = true,
-    val evictionStrategy: String = "FIFO"
+    val evictionStrategy: String = "FIFO",
+    val demotionWatermark: Float = 0.80f,
+    val idleCoolingEnabled: Boolean = false
 )
 
 interface HistoryManager {
@@ -82,6 +84,8 @@ interface HistoryManager {
     fun onTrimMemory(level: Int)
     fun stats(): HistoryStats
     fun clear()
+    /** Synchronously clears all RAM bitmaps, compressed buffers, and disk swap cache files right now. */
+    fun clearNow() = clear()
 }
 
 /**

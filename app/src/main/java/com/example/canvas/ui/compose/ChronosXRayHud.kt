@@ -81,7 +81,16 @@ fun ChronosXRayHud(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Bộ nhớ lịch sử", color = InkText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(8.dp))
-                Text(modeName, color = MutedText, fontSize = 13.sp)
+                Text(
+                    if (mode == HistoryMode.TIERED) {
+                        "$modeName · đẩy ${(telemetry.demotionWatermark * 100).toInt()}%" +
+                            (if (telemetry.idleCoolingEnabled) " · tự nguội" else "")
+                    } else {
+                        modeName
+                    },
+                    color = MutedText,
+                    fontSize = 12.5.sp
+                )
                 Spacer(Modifier.weight(1f))
                 Box(
                     modifier = Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onToggleMinimize),

@@ -1,11 +1,14 @@
 package com.example.canvas.history
 
 import android.content.ComponentCallbacks2
+import com.example.canvas.core.BufferPool
 import com.example.canvas.core.CodecSelector
 import com.example.canvas.core.Patch
 import com.example.canvas.core.PatchCodec
 import com.example.canvas.core.PatchState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -68,7 +71,25 @@ data class TierConfig(
      * Hot -> Warm picks how each patch is stored from what is in it (single colour, runs of equal pixels, smooth
      * gradients, or plain Deflate), learned per kind of patch (see [CodecSelector]) instead of always Deflate.
      */
-    val contentAwareCodec: Boolean = true
+    val contentAwareCodec: Boolean = true,
+    /**
+     * Proactive high-watermark ratio (default 80% instead of 100%): Hot and Warm start pushing older/larger
+     * patches down as soon as usage exceeds 80% of budget, keeping 20% headroom ready for upcoming strokes.
+     */
+    val demotionWatermark: Double = 0.80,
+    /**
+     * Oversized stroke/patch ratio: if a single stroke group or patch in Hot exceeds this share of Hot budget,
+     * it begins progressively demoting to Warm even before total usage crosses the watermark.
+     */
+    val largeStrokeRatio: Double = 0.45,
+    /**
+     * Time-based thermal decay: when the user pauses drawing, patches gradually cool down (Hot -> Warm -> Cold)
+     * step by step so idle sessions settle down to near-zero RAM.
+     */
+    val idleCoolingEnabled: Boolean = false,
+    val hotCoolAfterMs: Long = 3_500L,
+    val warmCoolAfterMs: Long = 8_000L,
+    val coolStepIntervalMs: Long = 1_500L
 )
 
 /**
@@ -101,9 +122,14 @@ class TierPolicy(
     /** Receives every tier transition (the tracker panel); null = nobody is watching. */
     private val events: TierEventLog? = null,
     /** Measured fixed cost of one more file (seek, open, headers) in bytes-equivalent; 0 while unknown. */
-    private val patchOverheadBytes: () -> Long = { 0L }
+    private val patchOverheadBytes: () -> Long = { 0L },
+    /** Injectable wall-clock (ms) for deterministic time-based cooling tests. */
+    private val clockMs: () -> Long = System::currentTimeMillis
 ) {
     private var blockedNotified = false
+
+    /** Serializes tier-demotion and cooling passes across worker suspension points so two coroutines never demote the same patch. */
+    private val transitionMutex = Mutex()
 
     /** Chooses the Cold compression level patch by patch from measurements. */
     val tuner = CompressionTuner()
@@ -122,6 +148,13 @@ class TierPolicy(
 
     fun warmBudget(): Long =
         (if (config.autoBudgets) autoBudgets()?.second else null) ?: config.warmBudgetBytes
+
+    /** High-watermark byte ceilings (default 80% of budget) above which patches start pushing down proactively. */
+    fun hotWatermarkBytes(): Long =
+        (hotBudget().toDouble() * config.demotionWatermark.coerceIn(0.10, 1.0)).toLong()
+
+    fun warmWatermarkBytes(): Long =
+        (warmBudget().toDouble() * config.demotionWatermark.coerceIn(0.10, 1.0)).toLong()
 
     /**
      * Bumped when the history is cleared. A move that was still in flight (its compression or file write running)
@@ -173,8 +206,8 @@ class TierPolicy(
     /**
      * Selects the next victim patch in HotStore according to [config.evictionStrategy].
      * - FIFO: picks oldest patch.
-     * - SWAM_COST_AWARE: estimates eviction benefit = sizeBytes * ageRank so large older
-     *   patches are compressed first while keeping tiny recent patches hot for O(1) undo.
+     * - SWAM_COST_AWARE: estimates eviction benefit = sizeBytes * ageRank * thermalAgeBoost so large
+     *   and older cooling patches are compressed first while keeping tiny recent patches hot for O(1) undo.
      */
     private fun selectHotVictim(): Patch? {
         if (config.evictionStrategy == SwamEvictionStrategy.FIFO) {
@@ -182,15 +215,16 @@ class TierPolicy(
         }
         val allHot = hotStore.getAll()
         if (allHot.isEmpty()) return null
+        val now = clockMs()
         val total = allHot.size
         var bestPatch: Patch = allHot[0]
         var bestScore = -1.0
         for (i in allHot.indices) {
             val candidate = allHot[i]
-            // Older patches have higher ageWeight (fromtotal down to 1)
             val ageWeight = (total - i).toDouble()
-            // Eviction score favors freeing larger RAM footprints weighted by age
-            val score = candidate.sizeBytes.coerceAtLeast(1024L).toDouble() * ageWeight
+            val ageSeconds = ((now - candidate.createdAtMs).coerceAtLeast(0L)) / 1000.0
+            val thermalBoost = 1.0 + (ageSeconds * 0.5)
+            val score = candidate.sizeBytes.coerceAtLeast(1024L).toDouble() * ageWeight * thermalBoost
             if (score > bestScore) {
                 bestScore = score
                 bestPatch = candidate
@@ -201,13 +235,16 @@ class TierPolicy(
 
     /**
      * Enforces memory budgets for Hot, Warm, and Cold stores, demoting items
-     * asynchronously from Hot -> Warm and Warm -> Cold as needed.
+     * asynchronously from Hot -> Warm and Warm -> Cold as soon as usage exceeds the
+     * 80% watermark ([hotWatermarkBytes], [warmWatermarkBytes]), and progressively offloading
+     * oversized strokes/patches even below 80%.
      */
     suspend fun enforceBudgets(
-        effectiveHotBudget: Long = hotBudget(),
-        effectiveWarmBudget: Long = warmBudget()
-    ) {
-        // 1. Enforce Hot budget -> demote excess to Warm
+        effectiveHotBudget: Long = hotWatermarkBytes(),
+        effectiveWarmBudget: Long = warmWatermarkBytes(),
+        checkOversized: Boolean = true
+    ) = transitionMutex.withLock {
+        // 1a. Enforce Hot high-watermark (default 80%) -> demote excess to Warm progressively
         val maxHotAttempts = hotStore.count
         var hotAttempts = 0
         while (hotStore.totalBytes > effectiveHotBudget && hotStore.count > 0 && hotAttempts < maxHotAttempts) {
@@ -216,7 +253,31 @@ class TierPolicy(
             hotAttempts++
         }
 
-        // 2. Enforce Warm budget -> demote excess to Cold
+        // 1b. Oversized stroke/patch offloading ("nếu lớn quá thì đẩy dần xuống"):
+        // Even if total Hot is still under 80%, a single giant patch or heavy multi-tile stroke
+        // exceeding largeStrokeRatio of Hot budget is progressively pushed down to Warm.
+        val fullHotBudget = hotBudget()
+        if (checkOversized && fullHotBudget > 0L && hotStore.count > 0) {
+            val largeThreshold = (fullHotBudget * config.largeStrokeRatio.coerceIn(0.15, 1.0)).toLong()
+            if (largeThreshold > 0L) {
+                val snapshot = hotStore.getAll()
+                val byStroke = HashMap<Long, Long>()
+                var anon = -1L
+                for (p in snapshot) {
+                    val key = if (p.groupId != 0L) p.groupId else anon--
+                    byStroke[key] = (byStroke[key] ?: 0L) + p.sizeBytes
+                }
+                for (p in snapshot) {
+                    if (p.state != PatchState.HOT || !hotStore.contains(p)) continue
+                    val groupBytes = if (p.groupId != 0L) (byStroke[p.groupId] ?: p.sizeBytes) else p.sizeBytes
+                    if (p.sizeBytes >= largeThreshold || groupBytes >= largeThreshold) {
+                        demoteHotToWarm(p, noteOverride = "nét lớn, đẩy dần")
+                    }
+                }
+            }
+        }
+
+        // 2. Enforce Warm high-watermark (default 80%) -> demote excess to Cold progressively
         val maxWarmAttempts = warmStore.count
         var warmAttempts = 0
         while (warmStore.totalBytes > effectiveWarmBudget && warmStore.count > 0 && warmAttempts < maxWarmAttempts) {
@@ -237,6 +298,60 @@ class TierPolicy(
                 if (coldStore.count == before && coldStore.totalBytes > config.coldMaxBytes) break
             }
         }
+    }
+
+    /**
+     * Performs one gentle time-based thermal cooling step when the user has been idle for [idleMs].
+     */
+    suspend fun coolStep(idleMs: Long): Boolean = transitionMutex.withLock {
+        val idleSec = (idleMs / 1000L).coerceAtLeast(1L)
+        if (idleMs >= config.hotCoolAfterMs && hotStore.count > 0) {
+            val span = (config.hotCoolAfterMs * 2L).coerceAtLeast(1L).toDouble()
+            val progress = ((idleMs - config.hotCoolAfterMs).toDouble() / span).coerceIn(0.0, 1.0)
+            val cooledHotTarget = (hotWatermarkBytes() * (1.0 - progress)).toLong()
+            if (hotStore.totalBytes > cooledHotTarget || progress >= 1.0) {
+                val victim = selectHotVictim()
+                if (victim != null) {
+                    val siblings = if (victim.groupId != 0L) {
+                        hotStore.getAll().filter { it.groupId == victim.groupId }
+                    } else {
+                        listOf(victim)
+                    }
+                    for (p in siblings) {
+                        if (p.state == PatchState.HOT && hotStore.contains(p)) {
+                            demoteHotToWarm(p, noteOverride = "nguội dần (${idleSec}s)")
+                        }
+                    }
+                }
+            }
+        }
+
+        var coldBlockedNow = false
+        if (idleMs >= config.warmCoolAfterMs && warmStore.count > 0) {
+            val span = (config.warmCoolAfterMs * 2L).coerceAtLeast(1L).toDouble()
+            val progress = ((idleMs - config.warmCoolAfterMs).toDouble() / span).coerceIn(0.0, 1.0)
+            val cooledWarmTarget = (warmWatermarkBytes() * (1.0 - progress)).toLong()
+            if (warmStore.totalBytes > cooledWarmTarget || progress >= 1.0) {
+                val victim = pickWarmVictim()
+                if (victim != null) {
+                    val siblings = if (victim.groupId != 0L) {
+                        warmStore.getAll().filter { it.groupId == victim.groupId }
+                    } else {
+                        listOf(victim)
+                    }
+                    for (p in siblings) {
+                        if (p.state == PatchState.WARM && warmStore.contains(p)) {
+                            if (!demoteWarmToCold(p, noteOverride = "nguội dần (${idleSec}s)")) {
+                                coldBlockedNow = true
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        hotStore.count > 0 || (warmStore.count > 0 && !coldBlockedNow)
     }
 
     /**
@@ -502,9 +617,9 @@ class TierPolicy(
      * - State transitions: HOT -> COMPRESSING -> WARM.
      * - Bitmap remains accessible until compression completes.
      */
-    suspend fun demoteHotToWarm(patch: Patch) {
+    suspend fun demoteHotToWarm(patch: Patch, noteOverride: String? = null) {
+        if (patch.state != PatchState.HOT) return
         val epochAtStart = epoch
-        val bmp = patch.bitmap
         val hotBytes = patch.sizeBytes
         patch.state = PatchState.COMPRESSING
 
@@ -525,36 +640,49 @@ class TierPolicy(
             patch.keptFile = enc.filePath
             reusedEncodings++
             reusedRawBytes += enc.rawLength.toLong()
-        } else if (bmp != null) {
-            var usedLevel = config.compressionLevel
-            val t0 = System.nanoTime()
-            val compressed = withContext(Dispatchers.Default) {
-                if (config.adaptiveCompEnabled && warmLevels.needsCalibration()) {
-                    // learn: the same pixels at every candidate level, then keep the level the rule picks
-                    val all = PatchCodec.compressBitmapAtLevels(bmp, warmLevels.levels)
-                    for ((level, r) in all) warmLevels.record(level, r.first.rawLength.toLong(), r.first.compressedBytes.size.toLong(), r.second)
-                    warmLevels.patchDone()
-                    usedLevel = warmLevels.best()
-                    all.getValue(usedLevel).first
-                } else {
-                    usedLevel = if (config.adaptiveCompEnabled) warmLevels.best() else config.compressionLevel
-                    if (config.contentAwareCodec) {
-                        val io = (costModel?.writeNsPerByte() ?: 0.0) + (costModel?.readNsPerByte() ?: 0.0)
-                        PatchCodec.compressBitmapAdaptive(bmp, usedLevel, codecs, if (io > 0.0) io else null)
-                    } else {
-                        PatchCodec.compressBitmap(bmp, usedLevel)
+        } else {
+            // Copy pixels into a pooled Java byte array while holding patch's monitor BEFORE hopping threads,
+            // so native Bitmap_copyPixelsToBuffer can NEVER touch a recycled Bitmap!
+            val snapshot = patch.copyPixelsToBufferPool()
+            if (snapshot != null) {
+                val (rawBuf, byteCount) = snapshot
+                try {
+                    var usedLevel = config.compressionLevel
+                    val t0 = System.nanoTime()
+                    val compressed = withContext(Dispatchers.Default) {
+                        if (config.adaptiveCompEnabled && warmLevels.needsCalibration()) {
+                            val all = PatchCodec.compressRawAtLevels(rawBuf, byteCount, warmLevels.levels)
+                            for ((level, r) in all) warmLevels.record(level, r.first.rawLength.toLong(), r.first.compressedBytes.size.toLong(), r.second)
+                            warmLevels.patchDone()
+                            usedLevel = warmLevels.best()
+                            all.getValue(usedLevel).first
+                        } else {
+                            usedLevel = if (config.adaptiveCompEnabled) warmLevels.best() else config.compressionLevel
+                            if (config.contentAwareCodec) {
+                                val io = (costModel?.writeNsPerByte() ?: 0.0) + (costModel?.readNsPerByte() ?: 0.0)
+                                PatchCodec.compressRawAdaptive(rawBuf, byteCount, usedLevel, codecs, if (io > 0.0) io else null)
+                            } else {
+                                PatchCodec.compress(rawBuf, usedLevel, byteCount)
+                            }
+                        }
                     }
+                    costModel?.recordCompress(compressed.rawLength.toLong(), System.nanoTime() - t0)
+                    patch.warmLevel = usedLevel
+                    patch.compressedBytes = compressed.compressedBytes
+                    patch.rawLength = compressed.rawLength
+                    patch.crc32 = compressed.crc32
+                    patch.sizeBytes = compressed.compressedBytes.size.toLong()
+                    costModel?.recordWarmCompress(compressed.rawLength.toLong(), compressed.compressedBytes.size.toLong())
+                } finally {
+                    BufferPool.release(rawBuf)
                 }
+            } else if (patch.compressedBytes != null) {
+                patch.sizeBytes = patch.compressedBytes!!.size.toLong()
+            } else {
+                // Patch was concurrently undone or cleared before compression started
+                patch.recycle()
+                return
             }
-            costModel?.recordCompress(compressed.rawLength.toLong(), System.nanoTime() - t0)
-            patch.warmLevel = usedLevel
-            patch.compressedBytes = compressed.compressedBytes
-            patch.rawLength = compressed.rawLength
-            patch.crc32 = compressed.crc32
-            patch.sizeBytes = compressed.compressedBytes.size.toLong()
-            costModel?.recordWarmCompress(compressed.rawLength.toLong(), compressed.compressedBytes.size.toLong())
-        } else if (patch.compressedBytes != null) {
-            patch.sizeBytes = patch.compressedBytes!!.size.toLong()
         }
 
         if (epoch != epochAtStart) {            // cleared while this was being compressed
@@ -563,9 +691,10 @@ class TierPolicy(
         }
         patch.state = PatchState.WARM
         warmStore.add(patch)
+        val levelNote = "mức ${patch.warmLevel.takeIf { it > 0 } ?: config.compressionLevel}"
         events?.emit(
             TierEventKind.HOT_TO_WARM, patch.strokeNo, hotBytes, patch.sizeBytes,
-            "mức ${patch.warmLevel.takeIf { it > 0 } ?: config.compressionLevel}"
+            if (noteOverride != null) "$levelNote · $noteOverride" else levelNote
         )
 
         // Now safe to recycle the bitmap
@@ -580,7 +709,8 @@ class TierPolicy(
      *   when [TierConfig.adaptiveCompEnabled] is active.
      * - Compressed bytes remain in RAM until atomic file write completes.
      */
-    suspend fun demoteWarmToCold(patch: Patch): Boolean {
+    suspend fun demoteWarmToCold(patch: Patch, noteOverride: String? = null): Boolean {
+        if (patch.state != PatchState.WARM) return false
         val epochAtStart = epoch
         val warmBytes = patch.compressedBytes ?: ByteArray(0)
         patch.state = PatchState.WRITING
@@ -684,7 +814,7 @@ class TierPolicy(
         coldStore.add(patch)
         events?.emit(
             TierEventKind.WARM_TO_COLD, patch.strokeNo, warmBytes.size.toLong(), patch.sizeBytes,
-            "mức $usedLevel"
+            if (noteOverride != null) "mức $usedLevel · $noteOverride" else "mức $usedLevel"
         )
 
         // Free compressed bytes (and any pre-decompressed bitmap) from RAM
@@ -719,7 +849,8 @@ class TierPolicy(
                 // Severe: Push all Hot down to Warm, reduce Warm to 50%, and run SWAM OOM Cleaner
                 enforceBudgets(
                     effectiveHotBudget = 0L,
-                    effectiveWarmBudget = (warmBudget() * 0.5).toLong()
+                    effectiveWarmBudget = (warmBudget() * 0.5).toLong(),
+                    checkOversized = false
                 )
                 runOomCleaner()
             }
@@ -728,7 +859,8 @@ class TierPolicy(
                 // Moderate: Reduce Hot to 25% and run SWAM OOM Cleaner
                 enforceBudgets(
                     effectiveHotBudget = (hotBudget() * 0.25).toLong(),
-                    effectiveWarmBudget = warmBudget()
+                    effectiveWarmBudget = warmBudget(),
+                    checkOversized = false
                 )
                 runOomCleaner()
             }
@@ -737,7 +869,8 @@ class TierPolicy(
                 // Mild: Reduce Hot to 50%
                 enforceBudgets(
                     effectiveHotBudget = (hotBudget() * 0.5).toLong(),
-                    effectiveWarmBudget = warmBudget()
+                    effectiveWarmBudget = warmBudget(),
+                    checkOversized = false
                 )
             }
         }
