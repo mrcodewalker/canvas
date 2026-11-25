@@ -58,6 +58,13 @@ class PrefetchModel(private val clockNs: () -> Long = System::nanoTime) {
     private val strokeBytesMedian = P2Quantile(0.5)
     private var pendingStrokeBytes = 0L   // tiles of the stroke being committed
 
+    // Adaptive thermal cooling estimators learned from the user's own drawing & undo rhythm:
+    // - drawPause75: 75th percentile of time between consecutive strokes (ms)
+    // - undoDecision90: 90th percentile of pause between committing a stroke and pressing Undo (ms)
+    private val drawPause75 = P2Quantile(0.75)
+    private val undoDecision90 = P2Quantile(0.90)
+    private var lastStrokeCommitNs = -1L
+
     // ---------------------------------------------------------------- observations
 
     private fun flushStroke() {
@@ -72,6 +79,13 @@ class PrefetchModel(private val clockNs: () -> Long = System::nanoTime) {
     fun recordUndo() {
         flushStroke()
         val now = clockNs()
+        if (lastUndoNs < 0 && lastStrokeCommitNs >= 0) {
+            // First undo after drawing: record how long the user thought before deciding to undo
+            val decisionMs = (now - lastStrokeCommitNs) / 1_000_000.0
+            if (decisionMs in 50.0..30_000.0) {
+                undoDecision90.add(decisionMs)
+            }
+        }
         if (lastUndoNs >= 0) {
             val gap = (now - lastUndoNs).toDouble()
             gapMedian.add(gap)
@@ -84,7 +98,18 @@ class PrefetchModel(private val clockNs: () -> Long = System::nanoTime) {
     /** A commit of a stroke tile; [newStroke] is true for the first tile of each stroke. */
     @Synchronized
     fun recordCommit(newStroke: Boolean, bytes: Long) {
-        if (newStroke) flushStroke()
+        val now = clockNs()
+        if (newStroke) {
+            flushStroke()
+            if (lastStrokeCommitNs >= 0) {
+                val pauseMs = (now - lastStrokeCommitNs) / 1_000_000.0
+                // Only within-session drawing pauses (ignore > 30s coffee breaks)
+                if (pauseMs in 40.0..30_000.0) {
+                    drawPause75.add(pauseMs)
+                }
+            }
+            lastStrokeCommitNs = now
+        }
         pendingStrokeBytes += bytes
         behavior.recordCommit(newStroke, bytes)
         lastUndoNs = -1L
@@ -128,6 +153,9 @@ class PrefetchModel(private val clockNs: () -> Long = System::nanoTime) {
         behavior.reset()
         strokeBytes90.reset()
         strokeBytesMedian.reset()
+        drawPause75.reset()
+        undoDecision90.reset()
+        lastStrokeCommitNs = -1L
         pendingStrokeBytes = 0L
         ioBusyNs = 0L
         cpuBusyNs = 0L
@@ -162,6 +190,22 @@ class PrefetchModel(private val clockNs: () -> Long = System::nanoTime) {
     /** Fixed cost of one extra patch read, in bytes-equivalent (null until measured). */
     @Synchronized
     fun patchOverheadBytes(): Long? = readModel.fixedCostBytes()
+
+    /**
+     * Learned idle delay (ms) before Hot patches begin cooling into Warm:
+     * waits longer than both the user's normal 75th-percentile inter-stroke drawing pause (×1.6)
+     * and their 90th-percentile undo decision time, clamped to a responsive [1200 ms .. 12000 ms] range.
+     * Returns null until at least 2 strokes were observed.
+     */
+    @Synchronized
+    fun learnedHotCoolDelayMs(): Long? {
+        val drawP75 = drawPause75.value()
+        val undoP90 = undoDecision90.value()
+        if (drawP75 == null && undoP90 == null) return null
+        val fromDraw = (drawP75 ?: 1500.0) * 1.6
+        val fromUndo = (undoP90 ?: 0.0) * 1.15
+        return max(fromDraw, fromUndo).toLong().coerceIn(1_200L, 12_000L)
+    }
 
     @Synchronized fun cadenceNs(): Double? = gapMedian.value()
     @Synchronized fun predictFetchNs(bytes: Long): Double? = readModel.predict(bytes)

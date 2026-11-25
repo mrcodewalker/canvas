@@ -124,7 +124,9 @@ class TierPolicy(
     /** Measured fixed cost of one more file (seek, open, headers) in bytes-equivalent; 0 while unknown. */
     private val patchOverheadBytes: () -> Long = { 0L },
     /** Injectable wall-clock (ms) for deterministic time-based cooling tests. */
-    private val clockMs: () -> Long = System::currentTimeMillis
+    private val clockMs: () -> Long = System::currentTimeMillis,
+    /** Learned idle pause (ms) before Hot starts cooling, derived from the user's real stroke/undo rhythm. */
+    private val learnedHotCoolMs: () -> Long? = { null }
 ) {
     private var blockedNotified = false
 
@@ -301,50 +303,103 @@ class TierPolicy(
     }
 
     /**
-     * Performs one gentle time-based thermal cooling step when the user has been idle for [idleMs].
+     * Effective cooling timings (hotDelayMs, warmDelayMs, stepIntervalMs) combining:
+     * 1. User rhythm learned by [PrefetchModel.learnedHotCoolDelayMs] (inter-stroke pause & undo decision window),
+     * 2. Live memory pressure acceleration: when Hot or Warm is heavily loaded (>50% of watermark) or device free
+     *    RAM is tight, cooling starts up to 2.5x sooner and steps faster.
+     */
+    fun effectiveCoolTimings(): Triple<Long, Long, Long> {
+        val baseHot = learnedHotCoolMs() ?: config.hotCoolAfterMs
+        val baseWarm = maxOf(config.warmCoolAfterMs, (baseHot * 22L) / 10L)
+        val baseStep = config.coolStepIntervalMs
+
+        val hotCap = hotWatermarkBytes().coerceAtLeast(1L)
+        val warmCap = warmWatermarkBytes().coerceAtLeast(1L)
+        val hotLoad = (hotStore.totalBytes.toDouble() / hotCap).coerceIn(0.0, 1.0)
+        val warmLoad = (warmStore.totalBytes.toDouble() / warmCap).coerceIn(0.0, 1.0)
+        val load = maxOf(hotLoad, warmLoad)
+        // High load accelerates cooling down to 40% of base delay; low load stays gentle (100%)
+        val accel = (1.0 - 0.60 * load).coerceIn(0.40, 1.0)
+
+        val effHot = (baseHot * accel).toLong().coerceAtLeast(600L)
+        val effWarm = (baseWarm * accel).toLong().coerceAtLeast(effHot + 800L)
+        val effStep = (baseStep * accel).toLong().coerceAtLeast(350L)
+        return Triple(effHot, effWarm, effStep)
+    }
+
+    /**
+     * Picks the coldest stroke in Hot during idle cooling using a thermal value-density score:
+     *
+     *     Temperature(p) = P(reach >= depth) / (sizeBytes * (1 + ageSeconds))
+     *
+     * The stroke with the lowest temperature (deepest in undo stack, lowest undo probability, largest RAM
+     * footprint, and oldest elapsed time) cools into Warm first, keeping the newest lightweight top stroke
+     * hot until the very last cooling step.
+     */
+    private fun selectColdestHotVictim(): Patch? {
+        val allHot = hotStore.getAll()
+        if (allHot.isEmpty()) return null
+        if (allHot.size == 1) return allHot[0]
+        val now = clockMs()
+        val depths = undoDepths()
+        val reach = reachFunction()
+        var coldest = allHot[0]
+        var lowestTemp = Double.MAX_VALUE
+        for (i in allHot.indices) {
+            val p = allHot[i]
+            val depth = depths[p.id] ?: (allHot.size - 1 - i)
+            val prob = reach(depth).coerceAtLeast(1e-4)
+            val ageSec = ((now - p.createdAtMs).coerceAtLeast(0L)) / 1000.0
+            val sizeKb = (p.sizeBytes.coerceAtLeast(1024L)) / 1024.0
+            val temp = prob / (sizeKb * (1.0 + ageSec * 0.8))
+            if (temp < lowestTemp) {
+                lowestTemp = temp
+                coldest = p
+            }
+        }
+        return coldest
+    }
+
+    /**
+     * Performs one adaptive time-based thermal cooling step when the user has been idle for [idleMs].
+     * - Once `idleMs >= effHotDelay`, immediately cools 1 coldest stroke group per tick from Hot -> Warm
+     *   (selected by [selectColdestHotVictim] using undo reach probability, byte size, and age).
+     * - Once `idleMs >= effWarmDelay`, cools 1 lowest-value stroke group per tick from Warm -> Cold.
      */
     suspend fun coolStep(idleMs: Long): Boolean = transitionMutex.withLock {
+        val (effHotDelay, effWarmDelay, _) = effectiveCoolTimings()
         val idleSec = (idleMs / 1000L).coerceAtLeast(1L)
-        if (idleMs >= config.hotCoolAfterMs && hotStore.count > 0) {
-            val span = (config.hotCoolAfterMs * 2L).coerceAtLeast(1L).toDouble()
-            val progress = ((idleMs - config.hotCoolAfterMs).toDouble() / span).coerceIn(0.0, 1.0)
-            val cooledHotTarget = (hotWatermarkBytes() * (1.0 - progress)).toLong()
-            if (hotStore.totalBytes > cooledHotTarget || progress >= 1.0) {
-                val victim = selectHotVictim()
-                if (victim != null) {
-                    val siblings = if (victim.groupId != 0L) {
-                        hotStore.getAll().filter { it.groupId == victim.groupId }
-                    } else {
-                        listOf(victim)
-                    }
-                    for (p in siblings) {
-                        if (p.state == PatchState.HOT && hotStore.contains(p)) {
-                            demoteHotToWarm(p, noteOverride = "nguội dần (${idleSec}s)")
-                        }
+
+        if (idleMs >= effHotDelay && hotStore.count > 0) {
+            val victim = selectColdestHotVictim()
+            if (victim != null) {
+                val siblings = if (victim.groupId != 0L) {
+                    hotStore.getAll().filter { it.groupId == victim.groupId }
+                } else {
+                    listOf(victim)
+                }
+                for (p in siblings) {
+                    if (p.state == PatchState.HOT && hotStore.contains(p)) {
+                        demoteHotToWarm(p, noteOverride = "nguội dần (${idleSec}s)")
                     }
                 }
             }
         }
 
         var coldBlockedNow = false
-        if (idleMs >= config.warmCoolAfterMs && warmStore.count > 0) {
-            val span = (config.warmCoolAfterMs * 2L).coerceAtLeast(1L).toDouble()
-            val progress = ((idleMs - config.warmCoolAfterMs).toDouble() / span).coerceIn(0.0, 1.0)
-            val cooledWarmTarget = (warmWatermarkBytes() * (1.0 - progress)).toLong()
-            if (warmStore.totalBytes > cooledWarmTarget || progress >= 1.0) {
-                val victim = pickWarmVictim()
-                if (victim != null) {
-                    val siblings = if (victim.groupId != 0L) {
-                        warmStore.getAll().filter { it.groupId == victim.groupId }
-                    } else {
-                        listOf(victim)
-                    }
-                    for (p in siblings) {
-                        if (p.state == PatchState.WARM && warmStore.contains(p)) {
-                            if (!demoteWarmToCold(p, noteOverride = "nguội dần (${idleSec}s)")) {
-                                coldBlockedNow = true
-                                break
-                            }
+        if (idleMs >= effWarmDelay && warmStore.count > 0) {
+            val victim = pickWarmVictim()
+            if (victim != null) {
+                val siblings = if (victim.groupId != 0L) {
+                    warmStore.getAll().filter { it.groupId == victim.groupId }
+                } else {
+                    listOf(victim)
+                }
+                for (p in siblings) {
+                    if (p.state == PatchState.WARM && warmStore.contains(p)) {
+                        if (!demoteWarmToCold(p, noteOverride = "nguội dần (${idleSec}s)")) {
+                            coldBlockedNow = true
+                            break
                         }
                     }
                 }

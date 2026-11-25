@@ -117,7 +117,8 @@ class TieredHistory(
         autoBudgets = { computeAutoBudgets() },
         events = events,
         patchOverheadBytes = { prefetcher.model.patchOverheadBytes() ?: 0L },
-        clockMs = clockMs
+        clockMs = clockMs,
+        learnedHotCoolMs = { prefetcher.model.learnedHotCoolDelayMs() }
     )
 
     /**
@@ -326,18 +327,19 @@ class TieredHistory(
         coolingJob = null
         if (!tierPolicy.config.idleCoolingEnabled) return
         coolingJob = scope.launch {
-            val firstWait = tierPolicy.config.hotCoolAfterMs.coerceAtLeast(200L)
-            kotlinx.coroutines.delay(firstWait)
+            val (firstHotDelay, _, _) = tierPolicy.effectiveCoolTimings()
+            kotlinx.coroutines.delay(firstHotDelay.coerceAtLeast(200L))
             while (tierPolicy.config.idleCoolingEnabled) {
+                val (effHotDelay, _, effStepInterval) = tierPolicy.effectiveCoolTimings()
                 val idleMs = (clockMs() - lastActivityMs).coerceAtLeast(0L)
-                if (idleMs < tierPolicy.config.hotCoolAfterMs) {
-                    kotlinx.coroutines.delay((tierPolicy.config.hotCoolAfterMs - idleMs).coerceAtLeast(100L))
+                if (idleMs < effHotDelay) {
+                    kotlinx.coroutines.delay((effHotDelay - idleMs).coerceAtLeast(100L))
                     continue
                 }
                 val hasMoreToCool = tierPolicy.coolStep(idleMs)
                 requestTierMap()
                 if (!hasMoreToCool) break
-                kotlinx.coroutines.delay(tierPolicy.config.coolStepIntervalMs.coerceAtLeast(200L))
+                kotlinx.coroutines.delay(effStepInterval.coerceAtLeast(200L))
             }
         }
     }
